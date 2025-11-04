@@ -1,0 +1,1 @@
+Place your data here. The runs must be named runXXXX_r1.fastq.gz and runXXXX_r2.fastq.gz where XXXX correspond to the run-number from the design-file. The data can be found on european nucleotide archive under the accession PRJEB75712.

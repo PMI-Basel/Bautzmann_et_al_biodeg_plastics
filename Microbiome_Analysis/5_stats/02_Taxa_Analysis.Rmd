@@ -1,0 +1,385 @@
+---
+title: "Microplastic - 02: Taxanomy Analysis"
+author: "Jan Waelchli"
+geometry: margin=2cm
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+---
+
+
+```{r setup, include=FALSE, echo=F, warning=F, message=F,}
+
+##clear the object from memory
+rm(list=ls())
+
+#knitr settings
+knitr::opts_chunk$set(echo=TRUE, fig.align="center")
+options(tinytex.verbose = TRUE)
+
+#set seed
+set.seed(100)
+
+#paths
+paths <- list(functions="functions/")
+
+## set source
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path))
+
+## load functions
+source(paste0(paths$functions,"functions.R"))
+functions(path=paths$functions)
+
+## installs (if necessary) and loads libraries
+libraries()
+library(tidyverse)
+
+```
+
+```{r import, echo=F, message=F, warning=F}
+
+# Import
+
+# set wd to RDS files
+setwd("interim/01_Import_Normalization")
+
+#cImport RDS files
+DESIGN <- readRDS("DESIGN.RDS")
+TAX <- readRDS("TAX.RDS")
+DAT_rare <- readRDS("DAT_rare.RDS")
+
+TAX_level_cols_phyla <- readRDS("TAX_level_cols_phyla.RDS")
+
+```
+
+```{r phyla, echo=F, warning=F, message=F}
+
+#sand
+
+# Data as PHYLOSEQ object
+
+#change order for melting later
+TAX <- TAX[,c("labels", "kingdom", "phylum", "class", "order", "family", "genus", "ASV_ID", "cols_phyla")]
+
+#create phyloseq objects
+DESIGN <- as.data.frame(DESIGN)
+rownames(DESIGN) <- DESIGN$AccessArray_barcode
+DAT_rare <- as.matrix(DAT_rare)
+TAX <- as.matrix(TAX[rownames(DAT_rare),])
+
+PHYSEQ <- phyloseq(sample_data(DESIGN), 
+                   otu_table(DAT_rare, taxa_are_rows=T),
+                   tax_table(TAX))
+
+
+# agglomerate data by labels 
+PHYSEQ_phyla <- tax_glom(PHYSEQ, "labels") # merge taxa by phyla ('labels' )
+PHYSEQ_phyla <- transform_sample_counts(PHYSEQ_phyla, function(x) 100 * x/sum(x)) 
+
+# melt phyloseq object
+PHYSEQ_phyla_melt <- psmelt(PHYSEQ_phyla) 
+
+# Defining ASV colors by labels
+PHYSEQ_phyla_melt$labels <- as.factor(PHYSEQ_phyla_melt$labels)
+PHYSEQ_phyla_melt$cols <- as.character(PHYSEQ_phyla_melt$labels)
+
+# attributing previously assigned colors
+# TAX_level_cols_phyla
+for(i in names(TAX_level_cols_phyla)[names(TAX_level_cols_phyla) %in% levels(PHYSEQ_phyla_melt$labels)]){
+  PHYSEQ_phyla_melt[PHYSEQ_phyla_melt$labels==paste(i), ]$cols <- TAX_level_cols_phyla[paste(i)]
+}
+
+# Defining high abundant Phyla
+# Phyla with MEAN abundances higher than 1% relative abundances
+PHYSEQ_phyla_abu <-  rownames(otu_table(PHYSEQ_phyla))[apply(otu_table(PHYSEQ_phyla), 1, mean, na.rm=T) > 1]
+PHYSEQ_phyla_abuP <- tax_table(PHYSEQ_phyla)[rownames(tax_table(PHYSEQ_phyla)) %in% PHYSEQ_phyla_abu, "labels"]
+
+# Defining low abundant Phyla
+# Phyla with MEAN abundances lower than 1% relative abundances
+PHYSEQ_phyla_low <-  rownames(otu_table(PHYSEQ_phyla))[apply(otu_table(PHYSEQ_phyla), 1, mean, na.rm=T) < 1]
+PHYSEQ_phyla_lowP <- tax_table(PHYSEQ_phyla)[rownames(tax_table(PHYSEQ_phyla)) %in% PHYSEQ_phyla_low, "labels"]
+
+# subsetting the color vector to abundant labels and classes
+# delete labels name of low-abundant phyla (for plot) and put them at the bottom
+PHYSEQ_phyla_melt$labels_2 <- as.character(PHYSEQ_phyla_melt$labels)
+PHYSEQ_phyla_melt[PHYSEQ_phyla_melt$labels_2 %in% PHYSEQ_phyla_lowP, ]$labels_2 <- "Low abundant phyla"
+PHYSEQ_phyla_melt$labels_2 <- as.factor(PHYSEQ_phyla_melt$labels_2)
+
+# color matrix for plot
+col_class <- PHYSEQ_phyla_melt$cols
+names(col_class) <- PHYSEQ_phyla_melt$labels_2
+
+```
+
+# Taxonomy
+
+We get an overview over the abundance of bacterial taxonomy by showing the most abundant phyla for each sample.
+
+### Figure 3 | Phylum level taxonomy
+
+\vspace{5mm}
+
+```{r bac fig, echo=F, warning=F, message=F, fig.height=13, fig.width=15}
+
+#sort
+PHYSEQ_phyla_melt <- PHYSEQ_phyla_melt[order(PHYSEQ_phyla_melt$Treatment),]
+#PHYSEQ_phyla_melt <- PHYSEQ_phyla_melt[order(PHYSEQ_phyla_melt$SampleType),]
+
+col_class[names(col_class)=="Low abundant phyla"] <- "lightgrey"
+
+#factor
+PHYSEQ_phyla_melt$SampleID <- factor(PHYSEQ_phyla_melt$SampleID, levels=unique(PHYSEQ_phyla_melt$SampleID)) #keep the order as it is now
+PHYSEQ_phyla_melt$labels_2 <- factor(PHYSEQ_phyla_melt$labels_2, levels = unique(PHYSEQ_phyla_melt$labels_2)[c(1:9,11:12,10)])#custom reordering
+
+#plot
+fig2.1 <- ggplot(PHYSEQ_phyla_melt, aes_string(x="SampleID", y="Abundance", fill="labels_2")) + 
+  geom_bar(stat="identity")+
+  xlab("") + 
+  ylab("Relative abundance [%]") +
+  scale_colour_manual(values=col_class)+
+  scale_fill_manual(values=col_class) +
+  guides(fill=guide_legend(title="Phylum"))+
+  facet_grid( ~ Substrate, scale="free_x", space="free_x") +
+  geom_text(data=PHYSEQ_phyla_melt, aes(label=Treatment, y=-20), angle=90, check_overlap=T, size=3, hjust = 0.25) + 
+  theme_bw()+
+  ggtitle("Bacteria: Taxonomy")+
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+#png("figures/fig2.1.png",10000,4500, res=600)
+print(fig2.1)
+#dev.off()
+
+```
+\vspace{5mm}
+
+We repeat the plot by plotting the abundances means for each treatment in each substrate.
+
+```{r bac fig2, echo=F, warning=F, message=F, fig.height=13, fig.width=15}
+
+PHYSEQ_phyla_melt_trt <- PHYSEQ_phyla_melt
+PHYSEQ_phyla_melt_trt$Treatment_Substrate <- paste0(PHYSEQ_phyla_melt_trt$Treatment, "_", PHYSEQ_phyla_melt_trt$Substrate)
+
+#norm to 100% per treatment
+for (t in unique(PHYSEQ_phyla_melt_trt$Treatment_Substrate)) {
+  abus <- PHYSEQ_phyla_melt_trt$Abundance[PHYSEQ_phyla_melt_trt$Treatment_Substrate == t]
+  abus_norm <- 100 * abus/sum(abus)
+  PHYSEQ_phyla_melt_trt$Abundance[PHYSEQ_phyla_melt_trt$Treatment_Substrate == t] <- abus_norm
+}
+
+
+#plot
+fig2.2 <- ggplot(PHYSEQ_phyla_melt_trt, aes_string(x="Treatment", y="Abundance", fill="labels_2")) + 
+  geom_bar(stat="identity")+
+  xlab("") + 
+  ylab("Relative abundance [%]") +
+  scale_colour_manual(values=col_class)+
+  scale_fill_manual(values=col_class) +
+  guides(fill=guide_legend(title="Phylum"))+
+  facet_grid( ~ Substrate, scale="free_x", space="free_x") +
+  geom_text(data=PHYSEQ_phyla_melt, aes(label=Treatment, y=-20), angle=90, check_overlap=T, size=3, hjust = 0.25) + 
+  theme_bw()+
+  ggtitle("Bacteria: Taxonomy")+
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+#png("figures/fig2.2.png",10000,4500, res=600)
+print(fig2.2)
+#dev.off()
+
+```
+\vspace{5mm}
+
+We repeat the plot showing in a different way for each phyla if it is increasing or decreasing compared to the plant control. For simplicity, we exclude substrate controls in this plot.
+
+```{r bac fig3, echo=F, warning=F, message=F, fig.height=13, fig.width=15}
+
+#remove substrate controls
+PHYSEQ_phyla_melt_sub <- PHYSEQ_phyla_melt[!(grepl("CTRL_substrate", PHYSEQ_phyla_melt$Treatment, fixed = T)),] %>% droplevels()
+PHYSEQ_phyla_melt_sub <- PHYSEQ_phyla_melt_sub[, colnames(PHYSEQ_phyla_melt_sub) %in% c("Sample", "Abundance", "Treatment", "Substrate", "labels_2")] %>% droplevels()
+
+#aggregate low abundant bacteria
+PHYSEQ_phyla_melt_sub <- aggregate(PHYSEQ_phyla_melt_sub$Abundance, list(PHYSEQ_phyla_melt_sub$Sample, PHYSEQ_phyla_melt_sub$Treatment, PHYSEQ_phyla_melt_sub$Substrate, PHYSEQ_phyla_melt_sub$labels_2), sum)
+colnames(PHYSEQ_phyla_melt_sub) <-  c("Sample", "Treatment", "Substrate", "labels_2", "Abundance")
+
+#test normalisation
+#test <- aggregate(PHYSEQ_phyla_melt_sub$Abundance, list(PHYSEQ_phyla_melt_sub$Sample), sum)
+
+#get CTRL means
+means_CTRL <- aggregate(PHYSEQ_phyla_melt_sub$Abundance, list(PHYSEQ_phyla_melt_sub$Treatment,PHYSEQ_phyla_melt_sub$Substrate , PHYSEQ_phyla_melt_sub$labels_2), mean)
+colnames(means_CTRL) <- c("Treatment","Substrate", "labels_2", "mean")
+means_CTRL <- means_CTRL[means_CTRL$Treatment=="CTRL_plant",]
+
+#normalise means to 100%
+for (t in unique(means_CTRL$Substrate)) {
+  abus <- means_CTRL$mean[means_CTRL$Substrate == t]
+  abus_norm <- 100 * abus/sum(abus)
+  means_CTRL$mean[means_CTRL$Substrate == t] <- abus_norm
+}
+
+#exclude CTRL from sub-file
+PHYSEQ_phyla_melt_sub <- PHYSEQ_phyla_melt_sub[PHYSEQ_phyla_melt_sub$Treatment!="CTRL_plant",] %>% droplevels()
+
+
+#get differences
+
+#empty df for differences
+differences <- PHYSEQ_phyla_melt_sub
+differences$Abundance <- NA
+
+#get differences between the different Treatments and the mean-CTRL
+for(labels_2 in unique(differences$labels_2)) {
+    for(Substrate in unique(differences$Substrate)){
+      
+      #CTRL mean
+      ctrl_mean <- means_CTRL$mean[means_CTRL$labels_2 == labels_2 & 
+                                   means_CTRL$Substrate == Substrate]
+        
+        #get differences between each Treatment and CTRL
+        for(Treatment in unique(differences$Treatment)){
+          #subset treatment abundaces values
+          trt_abu <-PHYSEQ_phyla_melt_sub$Abundance[PHYSEQ_phyla_melt_sub$labels_2 == labels_2 & 
+                                                    PHYSEQ_phyla_melt_sub$Substrate == Substrate & 
+                                                    PHYSEQ_phyla_melt_sub$Treatment == Treatment] #abundances-vector
+          #differences-vector
+          diff <- trt_abu - ctrl_mean
+          #save in differences-df
+          differences$Abundance[differences$labels_2 == labels_2 & 
+                                differences$Substrate == Substrate & 
+                                differences$Treatment == Treatment] <- diff
+    }
+  }
+}
+
+#rename
+colnames(differences)[colnames(differences)=="Abundance"] <- "Difference"
+
+#get differences means and standard erros
+differences_stat <- aggregate(differences$Difference,list(differences$Treatment,differences$Substrate , differences$labels_2), mean)
+differences_stat$se <- aggregate(differences$Difference,list(differences$Treatment,differences$Substrate , differences$labels_2), se)$x
+differences_stat$se2 <- ifelse(differences_stat$x < 0, differences_stat$se*(-1), differences_stat$se) #for plotting
+colnames(differences_stat) <- c("Treatment","Substrate", "labels_2", "mean", "se", "se2")
+
+#rename trts
+differences_stat$Treatment <- gsub("microplastic", "Microplastic", differences_stat$Treatment)
+differences_stat$Treatment <- gsub("macroplastic", "Macroplastic", differences_stat$Treatment)
+differences_stat$Treatment <- gsub("starch", "Starch", differences_stat$Treatment)
+differences_stat$Treatment <- gsub("_3", " 3% (v/v)", differences_stat$Treatment)
+differences_stat$Treatment <- gsub("_10", " 10% (v/v)", differences_stat$Treatment)
+differences_stat$Treatment <- factor(differences_stat$Treatment, levels =c("Microplastic 3% (v/v)","Microplastic 10% (v/v)",
+                                                               "Macroplastic 3% (v/v)","Macroplastic 10% (v/v)",
+                                                               "Starch 3% (v/v)","Starch 10% (v/v)"))
+
+#figure for all substrates
+
+#add low abu to color string
+TAX_level_cols_phyla <- c(TAX_level_cols_phyla, "lightgrey")
+names(TAX_level_cols_phyla)[length(names(TAX_level_cols_phyla))] <- "Low abundant phyla"
+
+#create figures
+for (Substrate in unique(differences_stat$Substrate)) {
+  
+  differences_stat_sub <- differences_stat[differences_stat$Substrate == Substrate,] %>% droplevels()
+  
+  
+  #plot
+  fig2.3 <- ggplot(differences_stat_sub, aes_string(x="labels_2", y="mean", fill="labels_2")) + 
+    geom_bar(stat="identity", col="black")+
+    xlab("")+
+    ylab("Relative Abundance Differences to CTRL [%]") +
+    scale_fill_manual(values=TAX_level_cols_phyla) +
+    guides(fill=guide_legend(title="Phylum"))+
+    facet_wrap( ~ Treatment, scale="free_x", ncol=6) +
+    geom_errorbar(aes(ymin=mean, ymax=mean+se2/2), width=.3, position=position_dodge(.8))+
+    theme_bw()+
+    ggtitle(unique(differences_stat_sub$Substrate))+
+    theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())+
+    theme(plot.title = element_text(hjust = 0.5, size = 10)) +
+    theme(axis.text = element_text(size = 8), axis.title = element_text(size = 8)) +
+    theme(strip.text = element_text(size = 8)) +
+    theme(legend.title = element_text(size = 8), legend.text = element_text(size = 8), legend.key.size = unit(0.4, "cm")) 
+
+  #ggsave(filename = paste0(Substrate, "_PhylaPlot.png"), plot = fig2.3, width = 26, height = 12, dpi = 600, units = "cm")
+
+  
+  #png("figures/fig2.3.png",10000,4500, res=600)
+  print(fig2.3)
+  #dev.off()
+  
+}
+
+
+```
+
+```{r phyla concentration plots, echo=F, warning=F, message=F, fig.height=4, fig.width=18}
+
+############################################
+
+library(tidyverse)
+test <- differences_stat %>% 
+  mutate(concentration=ifelse(grepl("3%", Treatment), 3, 10)) %>%
+  mutate(treatment2=case_when(grepl("Microplastic", Treatment) ~ "Microplastic",
+                              grepl("Macroplastic", Treatment) ~ "Macroplastic",
+                              grepl("Starch", Treatment) ~ "Starch")) %>%
+  mutate(treatment3=treatment2)
+
+### add CTRL points for all with mean 0
+test$Treatment <- as.character(test$Treatment)
+phyla <- unique(test$labels_2)
+substrate <- unique(test$Substrate)
+treatment <- unique(test$treatment2)
+for(p in phyla){
+  for(s in substrate){
+    for(t in treatment){
+        test <- rbind (test, c("CTRL", s, p, 0, 0, 0, 0, t, "CTRL"))
+    }
+  }
+}
+
+#add group
+test <- test %>%
+  mutate(group=paste0(labels_2, "_", treatment3))
+test$group <- as.factor(test$group)
+
+test$concentration <- as.numeric(test$concentration)
+test$mean <- as.numeric(test$mean)
+test <- test[order(test$concentration),]
+test$Substrate <- as.factor(test$Substrate)
+
+test$se <- as.numeric(test$se)
+
+ggplot(test, aes(x=concentration, y=mean, color=labels_2, fill=labels_2, shape=treatment2))+ #, lty=treatment2
+  #geom_smooth(lwd=0.5, alpha=1, method = "loess", se=F, span=1)+ #, position=position_dodge(1)
+  geom_path(lwd=0.5, alpha=1)+ #, position=position_dodge(1)
+  geom_point(size=3, color="black", stroke=0.6)+ #, position=position_dodge(1)
+  facet_wrap(. ~ Substrate, nrow = 1)+ #, scales = "free"
+  xlab("Plastic Concentration")+
+  ylab("Relative Abundance Differences to CTRL [%]") +
+  theme_bw()+
+  scale_color_manual("Phylum", values=TAX_level_cols_phyla)+
+  scale_fill_manual("Phylum", values=TAX_level_cols_phyla)+
+  scale_shape_manual("Plastic", values=c(21,22,24))+
+  guides(color=guide_legend(override.aes = list(shape = 21)))
+
+############################################
+
+```
+
+
+
+```{r export RDA files, , echo=F, message=F, warning=F}
+
+# create directory
+dir.create("interim")
+dir.create("interim/02_Taxa_Analysis")
+
+## set output directory
+setwd("interim/02_Taxa_Analysis")
+
+#save objects needed in the following scripts as RDA
+saveRDS(PHYSEQ, "PHYSEQ.RDS")
+saveRDS(PHYSEQ_phyla_melt, "PHYSEQ_phyla_melt.RDS")
+
+
+```
+

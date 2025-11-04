@@ -1,0 +1,1106 @@
+---
+title: "Microplastic - 04: Beta Diversity"
+author: "Jan Waelchli"
+geometry: margin=2cm
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE, echo=F, warning=F, message=F,}
+
+##clear the object from memory
+rm(list=ls())
+
+#knitr settings
+knitr::opts_chunk$set(echo=TRUE, fig.align="center")
+options(tinytex.verbose = TRUE)
+
+#set seed
+set.seed(100)
+
+#paths
+paths <- list(functions="functions/")
+
+## set source
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path))
+
+## load functions
+source(paste0(paths$functions,"functions.R"))
+functions(path=paths$functions)
+
+## installs (if necessary) and loads libraries
+libraries()
+
+```
+
+```{r paths, echo=F, message=F, warning=F}
+
+# Import
+
+#set wd to RDS files
+setwd("interim/01_Import_Normalization")
+
+#Import RDS files
+rare_threshold <- readRDS("rare_threshold.RDS")
+
+DESIGN <- readRDS("DESIGN.RDS")
+DAT_rare <- readRDS("DAT_rare.RDS")
+
+DESIGN_sand <- readRDS("DESIGN_sand.RDS")
+DAT_sand_rare <- readRDS("DAT_sand_rare.RDS")
+
+DESIGN_root_sand <- readRDS("DESIGN_root_sand.RDS")
+DAT_root_sand_rare <- readRDS("DAT_root_sand_rare.RDS")
+
+DESIGN_root_soil <- readRDS("DESIGN_root_soil.RDS")
+DAT_root_soil_rare <- readRDS("DAT_root_soil_rare.RDS")
+
+DESIGN_soil <- readRDS("DESIGN_soil.RDS")
+DAT_soil_rare <- readRDS("DAT_soil_rare.RDS")
+
+level_cols_Plastic <- readRDS("level_cols_Plastic.RDS")
+level_cols_Substrate <- readRDS("level_cols_Substrate.RDS")
+
+PHYSEQ <- readRDS("../02_Taxa_Analysis/PHYSEQ.RDS")
+
+#easier to write, from here on we only use the rarefied datasets
+DAT <- DAT_rare
+DAT_sand <- DAT_sand_rare
+DAT_root_sand <- DAT_root_sand_rare
+DAT_root_soil <- DAT_root_soil_rare
+DAT_soil <- DAT_soil_rare
+
+```
+
+# Beta diversity
+
+We answer the following question for the bacterial and fungal beta diversity in each compartment:
+
+-   **Q1: Are there differences in beta diversity between the different treatments?**
+-   **Q2: Are there differences in beta diversity between the different concentrations?**
+<!-- -   **Q3: Are there differences in beta diversity between the samples with plant and samples without plants?** -->
+
+First we use the function 'adonis()' (package vegan) to analyze the beta diversity with a PERMANOVA (permutations = 999). Then, we graphically represent the beta diversity with a PCoA (unconstrained ordination) and a CAP plot (constrained ordination).
+
+\pagebreak
+
+## Overview
+
+Before answering the questions, we get an overview by investigating the full model to see which factors alters the beta diversity.
+
+```{r PERMANOVA all, warning=F, echo=F, eval=T}
+
+#sand
+PHYSEQ_sand <- prune_samples(sample_data(PHYSEQ)$Substrate=="Sand", PHYSEQ)
+DAT_sand <- otu_table(PHYSEQ_sand)
+DESIGN_sand <- droplevels(DESIGN[DESIGN$Substrate=="Sand",])
+bdist_sand <- vegdist(t(DAT_sand), method="bray")
+bdist_paov_sand <- adonis2(bdist_sand ~ Plastic * Concentration + Plant, data=DESIGN_sand)
+pander(bdist_paov_sand, caption="PERMANOVA: sand")
+
+#root_sand
+PHYSEQ_root_sand <- prune_samples(sample_data(PHYSEQ)$Substrate=="Root_sand", PHYSEQ)
+DAT_root_sand <- otu_table(PHYSEQ_root_sand)
+DESIGN_root_sand <- droplevels(DESIGN[DESIGN$Substrate=="Root_sand",])
+bdist_root_sand <- vegdist(t(DAT_root_sand), method="bray")
+bdist_paov_root_sand <- adonis2(bdist_root_sand ~ Plastic * Concentration, data=DESIGN_root_sand)
+pander(bdist_paov_root_sand, caption="PERMANOVA: root_sand")
+
+#root_soil
+PHYSEQ_root_soil <- prune_samples(sample_data(PHYSEQ)$Substrate=="Root_soil", PHYSEQ)
+DAT_root_soil <- otu_table(PHYSEQ_root_soil)
+DESIGN_root_soil <- droplevels(DESIGN[DESIGN$Substrate=="Root_soil",])
+bdist_root_soil <- vegdist(t(DAT_root_soil), method="bray")
+bdist_paov_root_soil <- adonis2(bdist_root_soil ~ Plastic * Concentration, data=DESIGN_root_soil)
+pander(bdist_paov_root_soil, caption="PERMANOVA: root_soil")
+
+
+#soil
+PHYSEQ_soil <- prune_samples(sample_data(PHYSEQ)$Substrate=="Soil", PHYSEQ)
+DAT_soil <- otu_table(PHYSEQ_soil)
+DESIGN_soil <- droplevels(DESIGN[DESIGN$Substrate=="Soil",])
+bdist_soil <- vegdist(t(DAT_soil), method="bray")
+bdist_paov_soil <- adonis2(bdist_soil ~ Plastic * Concentration + Plant, data=DESIGN_soil)
+pander(bdist_paov_soil, caption="PERMANOVA: soil")
+
+```
+
+**Conclusion:** The bacterial communities are different between the different plastic treatments, the plastic concentration, the plastic:concentration interaction and between samples with plant and without plant. We further investigate the single factors in the following analyses.
+
+\pagebreak
+
+## Plastic effect
+
+**Q1: Are there differences in beta diversity between the different treatments (samples with plant)?**\
+For this analysis we only conduct samples with plants. Plants were either treated with no plastic (control), microplastic, macroplastic or starch. We saw above that the treatment is shaping the beta diversity. We investigate now in which direction is the beta diversity shifted by the single treatments.
+
+```{r PERMANOVA Plastic, warning=F, echo=F, eval=T}
+
+#sand
+PHYSEQ_sand_plant <- prune_samples(sample_data(PHYSEQ_sand)$Plant==TRUE, PHYSEQ_sand)
+DAT_sand_plant <- otu_table(PHYSEQ_sand_plant)
+DESIGN_sand_plant <- droplevels(DESIGN_sand[DESIGN_sand$Plant==TRUE,])
+bdist_sand_plant <- vegdist(t(DAT_sand_plant), method="bray")
+bdist_paov_sand_plant <- adonis2(bdist_sand_plant ~ Plastic * Concentration, data=DESIGN_sand_plant)
+pander(bdist_paov_sand_plant, caption="PERMANOVA: sand")
+
+########################################
+
+#new version to fit our experimental design
+
+#sand
+#Q1: one-way PERMANOVA
+PHYSEQ_sand_plant <- prune_samples(sample_data(PHYSEQ_sand)$Plant==TRUE, PHYSEQ_sand)
+DAT_sand_plant <- otu_table(PHYSEQ_sand_plant)
+DESIGN_sand_plant <- droplevels(DESIGN_sand[DESIGN_sand$Plant==TRUE,])
+DESIGN_sand_plant$group <- paste0(DESIGN_sand_plant$Treatment, "_", DESIGN_sand_plant$Concentration) #combine TRT and Conc to group
+bdist_sand_plant <- vegdist(t(DAT_sand_plant), method="bray")
+bdist_paov_sand_plant <- adonis2(bdist_sand_plant ~ group, data=DESIGN_sand_plant, by="margin") #adapt PERMANOVA model (depending on the adonis2() version you need the by="margin" parameter or not)
+pander(bdist_paov_sand_plant, caption="one-way PERMANOVA: sand")
+
+#Q2. two-way PERMANOVA w/o CTRL
+PHYSEQ_sand_plant_noCTRL <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic!="CTRL", PHYSEQ_sand_plant) #remove CTRL samples
+DAT_sand_plant_noCTRL <- otu_table(PHYSEQ_sand_plant_noCTRL)
+DESIGN_sand_plant_noCTRL <- droplevels(DESIGN_sand_plant[DESIGN_sand_plant$Plastic!="CTRL",]) #remove CTRL samples
+bdist_sand_plant_noCTRL <- vegdist(t(DAT_sand_plant_noCTRL), method="bray")
+bdist_paov_sand_plant_noCTRL <- adonis2(bdist_sand_plant_noCTRL ~ Plastic * Concentration, data=DESIGN_sand_plant_noCTRL, by="terms") #depending on the adonis2() version you need the by="terms" parameter or not
+pander(bdist_paov_sand_plant_noCTRL, caption="two-way PERMANOVA: sand")
+########################################
+
+
+
+
+
+
+
+#root_sand
+PHYSEQ_root_sand_plant <- prune_samples(sample_data(PHYSEQ_root_sand)$Plant==TRUE, PHYSEQ_root_sand)
+DAT_root_sand_plant <- otu_table(PHYSEQ_root_sand_plant)
+DESIGN_root_sand_plant <- droplevels(DESIGN_root_sand[DESIGN_root_sand$Plant==TRUE,])
+bdist_root_sand_plant <- vegdist(t(DAT_root_sand_plant), method="bray")
+bdist_paov_root_sand_plant <- adonis2(bdist_root_sand_plant ~ Plastic * Concentration, data=DESIGN_root_sand_plant)
+pander(bdist_paov_root_sand_plant, caption="PERMANOVA: root_sand")
+
+#root_soil
+PHYSEQ_root_soil_plant <- prune_samples(sample_data(PHYSEQ_root_soil)$Plant==TRUE, PHYSEQ_root_soil)
+DAT_root_soil_plant <- otu_table(PHYSEQ_root_soil_plant)
+DESIGN_root_soil_plant <- droplevels(DESIGN_root_soil[DESIGN_root_soil$Plant==TRUE,])
+bdist_root_soil_plant <- vegdist(t(DAT_root_soil_plant), method="bray")
+bdist_paov_root_soil_plant <- adonis2(bdist_root_soil_plant ~ Plastic * Concentration, data=DESIGN_root_soil_plant)
+pander(bdist_paov_root_soil_plant, caption="PERMANOVA: root_soil")
+
+#soil
+PHYSEQ_soil_plant <- prune_samples(sample_data(PHYSEQ_soil)$Plant==TRUE, PHYSEQ_soil)
+DAT_soil_plant <- otu_table(PHYSEQ_soil_plant)
+DESIGN_soil_plant <- droplevels(DESIGN_soil[DESIGN_soil$Plant==TRUE,])
+bdist_soil_plant <- vegdist(t(DAT_soil_plant), method="bray")
+bdist_paov_soil_plant <- adonis2(bdist_soil_plant ~ Plastic * Concentration, data=DESIGN_soil_plant)
+pander(bdist_paov_soil_plant, caption="PERMANOVA: soil")
+
+```
+
+\pagebreak
+
+### Figure 5.1.1 \| PCoA - Plastic effect on beta diversity
+
+```{r PCoA Plastic, echo=F, warning=F, eval=T, fig.height=12, fig.width=12}
+
+#function to get centroid lines
+centroid_lines <- function(PHYSEQ, dist_matrix, group, axes=c(1,2)){
+  #get ordination values
+  lines <- as.data.frame(plot_ordination(PHYSEQ, dist_matrix, axes=axes, justDF=T))
+  colnames(lines)[1:2] <- c("Axis.1","Axis.2")
+  lines <- lines[,colnames(lines) %in% c("Axis.1","Axis.2",group)]#subset
+  #get centroids (means of each group)
+  means1 <- aggregate(lines$Axis.1, by=as.list(lines[,colnames(lines) %in% group, drop=F]), FUN=mean)
+  means2 <- aggregate(lines$Axis.2, by=as.list(lines[,colnames(lines) %in% group, drop=F]), FUN=mean)
+  #concat groups (for multiple groups)
+  lines$concact <- lines[,colnames(lines) %in% group,drop=F] %>% apply(2, as.character) %>% apply(1, paste, collapse="")
+  means1$concact <- means1[,colnames(means1) %in% group,drop=F] %>% apply(2, as.character) %>% apply(1, paste, collapse="")
+  means2$concact <- means2[,colnames(means2) %in% group,drop=F] %>% apply(2, as.character) %>% apply(1, paste, collapse="")
+  #add means to data.frame
+  lines$Axis.1.means <- NA
+  lines$Axis.2.means <- NA
+  group_values <- unique(lines$concact)
+  for (i in group_values) {
+    lines$Axis.1.means[lines$concact == i] <- means1$x[means1$concact == i]
+    lines$Axis.2.means[lines$concact == i] <- means2$x[means1$concact == i]
+  }
+  #subset df
+  lines <- lines[,colnames(lines) %in% c("Axis.1","Axis.2","Axis.1.means","Axis.2.means")]
+  #return
+  return(lines)
+}
+
+#sand
+all_PCoA_bray <- ordinate(PHYSEQ_sand_plant, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_sand_plant, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_sand <- centroid_lines(PHYSEQ = PHYSEQ_sand_plant, dist_matrix = all_PCoA_bray, group = "Plastic")
+p0 <- p0 + geom_segment(aes(xend=lines_sand$Axis.1, yend=lines_sand$Axis.2), x = lines_sand$Axis.1.means, y = lines_sand$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_sand <- p0
+
+#root_sand
+all_PCoA_bray <- ordinate(PHYSEQ_root_sand_plant, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_sand_plant, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2)) #, axes = c(2,3))
+lines_root_sand <- centroid_lines(PHYSEQ_root_sand_plant, all_PCoA_bray, "Plastic", axes = c(1,2)) #, axes = c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand$Axis.1, yend=lines_root_sand$Axis.2), x = lines_root_sand$Axis.1.means, y = lines_root_sand$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_sand <- p0
+
+#root_soil
+all_PCoA_bray <- ordinate(PHYSEQ_root_soil_plant, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_soil_plant, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_soil <- centroid_lines(PHYSEQ_root_soil_plant, all_PCoA_bray, "Plastic", axes = c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil$Axis.1, yend=lines_root_soil$Axis.2), x = lines_root_soil$Axis.1.means, y = lines_root_soil$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_soil <- p0
+
+#soil
+all_PCoA_bray <- ordinate(PHYSEQ_soil_plant, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_soil_plant, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_soil <- centroid_lines(PHYSEQ_soil_plant, all_PCoA_bray, "Plastic")
+p0 <- p0 + geom_segment(aes(xend=lines_soil$Axis.1, yend=lines_soil$Axis.2), x = lines_soil$Axis.1.means, y = lines_soil$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_soil <- p0
+
+### PLOT
+#combine the two plots (library cowplot)
+fig_5.1.1 <- plot_grid(fig_sand + theme(legend.position="none"),
+               fig_root_sand + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil + theme(legend.position="none") + labs(colour=""),
+               fig_soil + theme(legend.position="none") + labs(colour=""),
+               labels=c("Sand","Root_sand", "Root_soil","Soil"),
+               align = "hv",
+               nrow=2)
+
+#add legend
+legend <- get_legend(fig_sand + theme(legend.position="bottom") + labs(fill="Plastic"))
+fig_5.1.1 <- plot_grid(fig_5.1.1, legend, nrow=2, rel_heights=c(1, .1))
+
+#print
+#png("figures/fig5.1.1.png",15000, 13000, res = 600)
+fig_5.1.1
+#dev.off()
+
+```
+```{r PCoA to debug, echo=F, warning=F, eval=T, eval=T, fig.height=26, fig.width=30}
+
+# all_PCoA_bray <- ordinate(PHYSEQ, method="PCoA", distance="bray")
+# p0 <- plot_ordination(PHYSEQ, all_PCoA_bray, color= "Plastic", shape="Substrate", axes = c(1,2))
+# lines_sand <- centroid_lines(PHYSEQ = PHYSEQ, dist_matrix = all_PCoA_bray, group = c("Substrate","Plastic"))
+# p0 <- p0 + geom_segment(aes(xend=lines_sand$Axis.1, yend=lines_sand$Axis.2), x = lines_sand$Axis.1.means, y = lines_sand$Axis.2.means, alpha=0.3)
+# p0 <- p0 + geom_point(size=3)
+# #p0 <- p0 + geom_text(aes(label=PHYSEQ@sam_data$AccessArray_barcode))
+# p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+# p0 <- p0 + theme_bw()
+# p0
+
+```
+
+
+### Figure 5.1.2 \| CAP - Plastic effect on beta diversity
+
+\vspace{5mm}
+
+```{r CAP Plastic compartments, echo=F, warning=F, eval=T, fig.height=13, fig.width=12}
+
+#sand
+CAP_bray <- ordinate(PHYSEQ_sand_plant, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_sand_plant), tax_table(PHYSEQ_sand_plant)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_sand_plant)[, "labels"] %in% topphyla), PHYSEQ_sand_plant)
+score <- paste("[ ~ Plastic * Conc \n Plastic: ",
+               format(bdist_paov_sand_plant$R2[rownames(bdist_paov_sand_plant)=="Plastic"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_sand_plant$`Pr(>F)`[rownames(bdist_paov_sand_plant)=="Plastic"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Plastic effect in sand", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_sand <- centroid_lines(phy_sub, CAP_bray, "Plastic")
+p0 <- p0 + geom_segment(aes(xend=lines_sand$Axis.1, yend=lines_sand$Axis.2), x = lines_sand$Axis.1.means, y = lines_sand$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_sand <- p0
+
+
+#root_sand
+CAP_bray <- ordinate(PHYSEQ_root_sand_plant, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_sand_plant), tax_table(PHYSEQ_root_sand_plant)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_sand_plant)[, "labels"] %in% topphyla), PHYSEQ_root_sand_plant)
+score <- paste("[ ~ Plastic * Conc \n Plastic: ",
+               format(bdist_paov_root_sand_plant$R2[rownames(bdist_paov_root_sand_plant)=="Plastic"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_sand_plant$`Pr(>F)`[rownames(bdist_paov_root_sand_plant)=="Plastic"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Plastic effect in root_sand", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_root_sand <- centroid_lines(phy_sub, CAP_bray, "Plastic")
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand$Axis.1, yend=lines_root_sand$Axis.2), x = lines_root_sand$Axis.1.means, y = lines_root_sand$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_sand <- p0
+
+#root_soil
+CAP_bray <- ordinate(PHYSEQ_root_soil_plant, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_soil_plant), tax_table(PHYSEQ_root_soil_plant)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_soil_plant)[, "labels"] %in% topphyla), PHYSEQ_root_soil_plant)
+score <- paste("[ ~ Plastic * Conc \n Plastic: ",
+               format(bdist_paov_root_soil_plant$R2[rownames(bdist_paov_root_soil_plant)=="Plastic"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_soil_plant$`Pr(>F)`[rownames(bdist_paov_root_soil_plant)=="Plastic"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Plastic effect in root_soil", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_root_soil <- centroid_lines(phy_sub, CAP_bray, "Plastic")
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil$Axis.1, yend=lines_root_soil$Axis.2), x = lines_root_soil$Axis.1.means, y = lines_root_soil$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_soil <- p0
+
+#soil
+CAP_bray <- ordinate(PHYSEQ_soil_plant, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_soil_plant), tax_table(PHYSEQ_soil_plant)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_soil_plant)[, "labels"] %in% topphyla), PHYSEQ_soil_plant)
+score <- paste("[ ~ Plastic * Conc \n Plastic: ",
+               format(bdist_paov_soil_plant$R2[rownames(bdist_paov_soil_plant)=="Plastic"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_soil_plant$`Pr(>F)`[rownames(bdist_paov_soil_plant)=="Plastic"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Plastic effect in soil", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_soil <- centroid_lines(phy_sub, CAP_bray, "Plastic")
+p0 <- p0 + geom_segment(aes(xend=lines_soil$Axis.1, yend=lines_soil$Axis.2), x = lines_soil$Axis.1.means, y = lines_soil$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant@sam_data$AccessArray_barcode))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_soil <- p0
+
+
+### PLOT
+#combine the two plots (library cowplot)
+fig_5.1.2 <- plot_grid(fig_sand + theme(legend.position="none"),
+               fig_root_sand + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil + theme(legend.position="none") + labs(colour=""),
+               fig_soil + theme(legend.position="none") + labs(colour=""),
+               #labels=c("Sand","Root_sand", "Root_soil","Soil"),
+               align = "hv",
+               nrow=2)
+
+#add legend
+legend <- get_legend(fig_sand + theme(legend.position="bottom") + labs(fill="Plastic"))
+fig_5.1.2 <- plot_grid(fig_5.1.2, legend, nrow=2, rel_heights=c(1, .1))
+
+#print
+#png("figures/fig5.1.2.png",15000, 13000, res = 600)
+fig_5.1.2
+#dev.off()
+
+```
+
+\vspace{5mm}
+
+**Conclusion:** The bacterial communities differs between the different plastic treatments. Plastic can describe between 30% and 45% of the microbial variety. Most of the variety within the plastic treatments comes from the different plastic concentrations which have been used.
+
+\pagebreak
+
+## Concentration effect
+
+**Q2: Are there differences in beta diversity between the different concentrations (samples with plant)?**\
+For this analysis we only conduct samples with plants. Plants were either treated with no plastic (control) or microplastic, macroplastic or starch in a concentration of 3% of 10%. We saw above that the concentration has an effect on the beta diversity. We investigate now in which direction is the beta diversity shifted by the different concentrations.
+
+```{r PERMANOVA Concentration, warning=F, echo=F, eval=T}
+
+#sand
+PHYSEQ_sand_plant_microplastic <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_sand_plant)
+DAT_sand_plant_microplastic <- otu_table(PHYSEQ_sand_plant_microplastic)
+DESIGN_sand_plant_microplastic <- droplevels(DESIGN_sand_plant[DESIGN_sand_plant$Plastic%in%c("CTRL","microplastic"),])
+bdist_sand_plant_microplastic <- vegdist(t(DAT_sand_plant_microplastic), method="bray")
+bdist_paov_sand_plant_microplastic <- adonis2(bdist_sand_plant_microplastic ~ Concentration, data=DESIGN_sand_plant_microplastic)
+pander(bdist_paov_sand_plant_microplastic, caption="PERMANOVA: sand microplastic")
+
+PHYSEQ_sand_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_sand_plant)
+DAT_sand_plant_macroplastic <- otu_table(PHYSEQ_sand_plant_macroplastic)
+DESIGN_sand_plant_macroplastic <- droplevels(DESIGN_sand_plant[DESIGN_sand_plant$Plastic%in%c("CTRL","macroplastic"),])
+bdist_sand_plant_macroplastic <- vegdist(t(DAT_sand_plant_macroplastic), method="bray")
+bdist_paov_sand_plant_macroplastic <- adonis2(bdist_sand_plant_macroplastic ~ Concentration, data=DESIGN_sand_plant_macroplastic)
+pander(bdist_paov_sand_plant_macroplastic, caption="PERMANOVA: sand macroplastic")
+
+PHYSEQ_sand_plant_starch <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_sand_plant)
+DAT_sand_plant_starch <- otu_table(PHYSEQ_sand_plant_starch)
+DESIGN_sand_plant_starch <- droplevels(DESIGN_sand_plant[DESIGN_sand_plant$Plastic%in%c("CTRL","starch"),])
+bdist_sand_plant_starch <- vegdist(t(DAT_sand_plant_starch), method="bray")
+bdist_paov_sand_plant_starch <- adonis2(bdist_sand_plant_starch ~ Concentration, data=DESIGN_sand_plant_starch)
+pander(bdist_paov_sand_plant_starch, caption="PERMANOVA: sand starch")
+
+#root_sand
+PHYSEQ_root_sand_plant_microplastic <- prune_samples(sample_data(PHYSEQ_root_sand_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_root_sand_plant)
+DAT_root_sand_plant_microplastic <- otu_table(PHYSEQ_root_sand_plant_microplastic)
+DESIGN_root_sand_plant_microplastic <- droplevels(DESIGN_root_sand_plant[DESIGN_root_sand_plant$Plastic%in%c("CTRL","microplastic"),])
+bdist_root_sand_plant_microplastic <- vegdist(t(DAT_root_sand_plant_microplastic), method="bray")
+bdist_paov_root_sand_plant_microplastic <- adonis2(bdist_root_sand_plant_microplastic ~ Concentration, data=DESIGN_root_sand_plant_microplastic)
+pander(bdist_paov_root_sand_plant_microplastic, caption="PERMANOVA: root_sand microplastic")
+
+PHYSEQ_root_sand_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_root_sand_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_root_sand_plant)
+DAT_root_sand_plant_macroplastic <- otu_table(PHYSEQ_root_sand_plant_macroplastic)
+DESIGN_root_sand_plant_macroplastic <- droplevels(DESIGN_root_sand_plant[DESIGN_root_sand_plant$Plastic%in%c("CTRL","macroplastic"),])
+bdist_root_sand_plant_macroplastic <- vegdist(t(DAT_root_sand_plant_macroplastic), method="bray")
+bdist_paov_root_sand_plant_macroplastic <- adonis2(bdist_root_sand_plant_macroplastic ~ Concentration, data=DESIGN_root_sand_plant_macroplastic)
+pander(bdist_paov_root_sand_plant_macroplastic, caption="PERMANOVA: root_sand macroplastic")
+
+PHYSEQ_root_sand_plant_starch <- prune_samples(sample_data(PHYSEQ_root_sand_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_root_sand_plant)
+DAT_root_sand_plant_starch <- otu_table(PHYSEQ_root_sand_plant_starch)
+DESIGN_root_sand_plant_starch <- droplevels(DESIGN_root_sand_plant[DESIGN_root_sand_plant$Plastic%in%c("CTRL","starch"),])
+bdist_root_sand_plant_starch <- vegdist(t(DAT_root_sand_plant_starch), method="bray")
+bdist_paov_root_sand_plant_starch <- adonis2(bdist_root_sand_plant_starch ~ Concentration, data=DESIGN_root_sand_plant_starch)
+pander(bdist_paov_root_sand_plant_starch, caption="PERMANOVA: root_sand starch")
+
+#root_soil
+PHYSEQ_root_soil_plant_microplastic <- prune_samples(sample_data(PHYSEQ_root_soil_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_root_soil_plant)
+DAT_root_soil_plant_microplastic <- otu_table(PHYSEQ_root_soil_plant_microplastic)
+DESIGN_root_soil_plant_microplastic <- droplevels(DESIGN_root_soil_plant[DESIGN_root_soil_plant$Plastic%in%c("CTRL","microplastic"),])
+bdist_root_soil_plant_microplastic <- vegdist(t(DAT_root_soil_plant_microplastic), method="bray")
+bdist_paov_root_soil_plant_microplastic <- adonis2(bdist_root_soil_plant_microplastic ~ Concentration, data=DESIGN_root_soil_plant_microplastic)
+pander(bdist_paov_root_soil_plant_microplastic, caption="PERMANOVA: root_soil microplastic")
+
+PHYSEQ_root_soil_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_root_soil_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_root_soil_plant)
+DAT_root_soil_plant_macroplastic <- otu_table(PHYSEQ_root_soil_plant_macroplastic)
+DESIGN_root_soil_plant_macroplastic <- droplevels(DESIGN_root_soil_plant[DESIGN_root_soil_plant$Plastic%in%c("CTRL","macroplastic"),])
+bdist_root_soil_plant_macroplastic <- vegdist(t(DAT_root_soil_plant_macroplastic), method="bray")
+bdist_paov_root_soil_plant_macroplastic <- adonis2(bdist_root_soil_plant_macroplastic ~ Concentration, data=DESIGN_root_soil_plant_macroplastic)
+pander(bdist_paov_root_soil_plant_macroplastic, caption="PERMANOVA: root_soil macroplastic")
+
+PHYSEQ_root_soil_plant_starch <- prune_samples(sample_data(PHYSEQ_root_soil_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_root_soil_plant)
+DAT_root_soil_plant_starch <- otu_table(PHYSEQ_root_soil_plant_starch)
+DESIGN_root_soil_plant_starch <- droplevels(DESIGN_root_soil_plant[DESIGN_root_soil_plant$Plastic%in%c("CTRL","starch"),])
+bdist_root_soil_plant_starch <- vegdist(t(DAT_root_soil_plant_starch), method="bray")
+bdist_paov_root_soil_plant_starch <- adonis2(bdist_root_soil_plant_starch ~ Concentration, data=DESIGN_root_soil_plant_starch)
+pander(bdist_paov_root_soil_plant_starch, caption="PERMANOVA: root_soil starch")
+
+#soil
+PHYSEQ_soil_plant_microplastic <- prune_samples(sample_data(PHYSEQ_soil_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_soil_plant)
+DAT_soil_plant_microplastic <- otu_table(PHYSEQ_soil_plant_microplastic)
+DESIGN_soil_plant_microplastic <- droplevels(DESIGN_soil_plant[DESIGN_soil_plant$Plastic%in%c("CTRL","microplastic"),])
+bdist_soil_plant_microplastic <- vegdist(t(DAT_soil_plant_microplastic), method="bray")
+bdist_paov_soil_plant_microplastic <- adonis2(bdist_soil_plant_microplastic ~ Concentration, data=DESIGN_soil_plant_microplastic)
+pander(bdist_paov_soil_plant_microplastic, caption="PERMANOVA: soil microplastic")
+
+PHYSEQ_soil_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_soil_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_soil_plant)
+DAT_soil_plant_macroplastic <- otu_table(PHYSEQ_soil_plant_macroplastic)
+DESIGN_soil_plant_macroplastic <- droplevels(DESIGN_soil_plant[DESIGN_soil_plant$Plastic%in%c("CTRL","macroplastic"),])
+bdist_soil_plant_macroplastic <- vegdist(t(DAT_soil_plant_macroplastic), method="bray")
+bdist_paov_soil_plant_macroplastic <- adonis2(bdist_soil_plant_macroplastic ~ Concentration, data=DESIGN_soil_plant_macroplastic)
+pander(bdist_paov_soil_plant_macroplastic, caption="PERMANOVA: soil macroplastic")
+
+PHYSEQ_soil_plant_starch <- prune_samples(sample_data(PHYSEQ_soil_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_soil_plant)
+DAT_soil_plant_starch <- otu_table(PHYSEQ_soil_plant_starch)
+DESIGN_soil_plant_starch <- droplevels(DESIGN_soil_plant[DESIGN_soil_plant$Plastic%in%c("CTRL","starch"),])
+bdist_soil_plant_starch <- vegdist(t(DAT_soil_plant_starch), method="bray")
+bdist_paov_soil_plant_starch <- adonis2(bdist_soil_plant_starch ~ Concentration, data=DESIGN_soil_plant_starch)
+pander(bdist_paov_soil_plant_starch, caption="PERMANOVA: soil starch")
+
+```
+
+### Figure 5.2.1 \| PCoA - Concentration effect on beta diversity
+
+```{r PCoA Concentration, echo=F, warning=F, eval=T, fig.height=24, fig.width=18}
+
+PHYSEQ_sand_plant_microplastic <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_sand_plant)
+PHYSEQ_sand_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_sand_plant)
+PHYSEQ_sand_plant_starch <- prune_samples(sample_data(PHYSEQ_sand_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_sand_plant)
+
+PHYSEQ_root_sand_plant_microplastic <- prune_samples(sample_data(PHYSEQ_root_sand_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_root_sand_plant)
+PHYSEQ_root_sand_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_root_sand_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_root_sand_plant)
+PHYSEQ_root_sand_plant_starch <- prune_samples(sample_data(PHYSEQ_root_sand_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_root_sand_plant)
+
+PHYSEQ_root_soil_plant_microplastic <- prune_samples(sample_data(PHYSEQ_root_soil_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_root_soil_plant)
+PHYSEQ_root_soil_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_root_soil_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_root_soil_plant)
+PHYSEQ_root_soil_plant_starch <- prune_samples(sample_data(PHYSEQ_root_soil_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_root_soil_plant)
+
+PHYSEQ_soil_plant_microplastic <- prune_samples(sample_data(PHYSEQ_soil_plant)$Plastic%in%c("CTRL","microplastic"), PHYSEQ_soil_plant)
+PHYSEQ_soil_plant_macroplastic <- prune_samples(sample_data(PHYSEQ_soil_plant)$Plastic%in%c("CTRL","macroplastic"), PHYSEQ_soil_plant)
+PHYSEQ_soil_plant_starch <- prune_samples(sample_data(PHYSEQ_soil_plant)$Plastic%in%c("CTRL","starch"), PHYSEQ_soil_plant)
+
+#sand microplastic
+all_PCoA_bray <- ordinate(PHYSEQ_sand_plant_microplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_sand_plant_microplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_sand_microplastic <- centroid_lines(PHYSEQ_sand_plant_microplastic, all_PCoA_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_sand_microplastic$Axis.1, yend=lines_sand_microplastic$Axis.2), x = lines_sand_microplastic$Axis.1.means, y = lines_sand_microplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+
+fig_sand_microplastic <- p0
+
+#sand macroplastic
+all_PCoA_bray <- ordinate(PHYSEQ_sand_plant_macroplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_sand_plant_macroplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_sand_macroplastic <- centroid_lines(PHYSEQ_sand_plant_macroplastic, all_PCoA_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_sand_macroplastic$Axis.1, yend=lines_sand_macroplastic$Axis.2), x = lines_sand_macroplastic$Axis.1.means, y = lines_sand_macroplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_sand_macroplastic <- p0
+
+#sand starch
+all_PCoA_bray <- ordinate(PHYSEQ_sand_plant_starch, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_sand_plant_starch, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_sand_starch <- centroid_lines(PHYSEQ_sand_plant_starch, all_PCoA_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_sand_starch$Axis.1, yend=lines_sand_starch$Axis.2), x = lines_sand_starch$Axis.1.means, y = lines_sand_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_sand_starch <- p0
+
+#root_sand microplastic
+all_PCoA_bray <- ordinate(PHYSEQ_root_sand_plant_microplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_sand_plant_microplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_sand_microplastic <- centroid_lines(PHYSEQ_root_sand_plant_microplastic, all_PCoA_bray, c("Plastic","Concentration"), axes=c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand_microplastic$Axis.1, yend=lines_root_sand_microplastic$Axis.2), x = lines_root_sand_microplastic$Axis.1.means, y = lines_root_sand_microplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_sand_microplastic <- p0
+
+#root_sand macroplastic
+all_PCoA_bray <- ordinate(PHYSEQ_root_sand_plant_macroplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_sand_plant_macroplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_sand_macroplastic <- centroid_lines(PHYSEQ_root_sand_plant_macroplastic, all_PCoA_bray, c("Plastic","Concentration"), axes=c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand_macroplastic$Axis.1, yend=lines_root_sand_macroplastic$Axis.2), x = lines_root_sand_macroplastic$Axis.1.means, y = lines_root_sand_macroplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_sand_macroplastic <- p0
+
+#root_sand starch
+all_PCoA_bray <- ordinate(PHYSEQ_root_sand_plant_starch, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_sand_plant_starch, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_sand_starch <- centroid_lines(PHYSEQ_root_sand_plant_starch, all_PCoA_bray, c("Plastic","Concentration"), axes=c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand_starch$Axis.1, yend=lines_root_sand_starch$Axis.2), x = lines_root_sand_starch$Axis.1.means, y = lines_root_sand_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_sand_starch <- p0
+
+#root_soil microplastic
+all_PCoA_bray <- ordinate(PHYSEQ_root_soil_plant_microplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_soil_plant_microplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_soil_microplastic <- centroid_lines(PHYSEQ_root_soil_plant_microplastic, all_PCoA_bray, c("Plastic","Concentration"), axes=c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil_microplastic$Axis.1, yend=lines_root_soil_microplastic$Axis.2), x = lines_root_soil_microplastic$Axis.1.means, y = lines_root_soil_microplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_soil_microplastic <- p0
+
+#root_soil macroplastic
+all_PCoA_bray <- ordinate(PHYSEQ_root_soil_plant_macroplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_soil_plant_macroplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_soil_macroplastic <- centroid_lines(PHYSEQ_root_soil_plant_macroplastic, all_PCoA_bray, c("Plastic","Concentration"), axes=c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil_macroplastic$Axis.1, yend=lines_root_soil_macroplastic$Axis.2), x = lines_root_soil_macroplastic$Axis.1.means, y = lines_root_soil_macroplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_soil_macroplastic <- p0
+
+#root_soil starch
+all_PCoA_bray <- ordinate(PHYSEQ_root_soil_plant_starch, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_root_soil_plant_starch, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(2,3))
+lines_root_soil_starch <- centroid_lines(PHYSEQ_root_soil_plant_starch, all_PCoA_bray, c("Plastic","Concentration"), axes=c(2,3))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil_starch$Axis.1, yend=lines_root_soil_starch$Axis.2), x = lines_root_soil_starch$Axis.1.means, y = lines_root_soil_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_root_soil_starch <- p0
+
+
+#soil microplastic
+
+to_rm <- c("Soil268", "Soil321")
+PHYSEQ_soil_plant_microplastic <- prune_samples(!(sample_data(PHYSEQ_soil_plant_microplastic)$SampleID%in%to_rm), PHYSEQ_soil_plant_microplastic)
+
+#labels <- PHYSEQ_soil_plant_microplastic@sam_data$SampleID
+
+all_PCoA_bray <- ordinate(PHYSEQ_soil_plant_microplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_soil_plant_microplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_soil_microplastic <- centroid_lines(PHYSEQ_soil_plant_microplastic, all_PCoA_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_soil_microplastic$Axis.1, yend=lines_soil_microplastic$Axis.2), x = lines_soil_microplastic$Axis.1.means, y = lines_soil_microplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_soil_microplastic <- p0
+
+#soil macroplastic
+all_PCoA_bray <- ordinate(PHYSEQ_soil_plant_macroplastic, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_soil_plant_macroplastic, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_soil_macroplastic <- centroid_lines(PHYSEQ_soil_plant_macroplastic, all_PCoA_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_soil_macroplastic$Axis.1, yend=lines_soil_macroplastic$Axis.2), x = lines_soil_macroplastic$Axis.1.means, y = lines_soil_macroplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_soil_macroplastic <- p0
+
+#soil starch
+all_PCoA_bray <- ordinate(PHYSEQ_soil_plant_starch, method="PCoA", distance="bray")
+p0 <- plot_ordination(PHYSEQ_soil_plant_starch, all_PCoA_bray, color= "Plastic", shape="Concentration", axes = c(1,2))
+lines_soil_starch <- centroid_lines(PHYSEQ_soil_plant_starch, all_PCoA_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_soil_starch$Axis.1, yend=lines_soil_starch$Axis.2), x = lines_soil_starch$Axis.1.means, y = lines_soil_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + theme_bw()
+fig_soil_starch <- p0
+
+
+### PLOT
+#combine the plots (library cowplot)
+fig_5.2.1 <- plot_grid(fig_sand_microplastic + theme(legend.position="none"),
+               fig_sand_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_sand_starch + theme(legend.position="none") + labs(colour=""),
+               fig_root_sand_microplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_sand_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_sand_starch + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil_microplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil_starch + theme(legend.position="none") + labs(colour=""),
+               fig_soil_microplastic + theme(legend.position="none") + labs(colour=""),
+               fig_soil_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_soil_starch + theme(legend.position="none") + labs(colour=""),
+               labels=c("Sand","","","Root_sand","","","Root_soil","","","Soil","",""),
+               align = "hv",
+               nrow=4)
+
+#add legend
+legend <- get_legend(fig_sand_microplastic + theme(legend.position="bottom") + labs(fill="Plastic"))
+fig_5.2.1 <- plot_grid(fig_5.2.1, legend, nrow=2, rel_heights=c(1, .1))
+
+#print
+#png("figures/fig5.2.1.png",15000, 20000, res = 600)
+fig_5.2.1
+#dev.off()
+
+```
+
+### Figure 5.2.2 \| CAP - Concentration effect on beta diversity
+
+\vspace{5mm}
+
+```{r CAP Concentration compartments, echo=F, warning=F, eval=T, fig.height=28, fig.width=18}
+
+#sand microplastic
+CAP_bray <- ordinate(PHYSEQ_sand_plant_microplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_sand_plant_microplastic), tax_table(PHYSEQ_sand_plant_microplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_sand_plant_microplastic)[, "labels"] %in% topphyla), PHYSEQ_sand_plant_microplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_sand_plant_microplastic$R2[rownames(bdist_paov_sand_plant_microplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_sand_plant_microplastic$`Pr(>F)`[rownames(bdist_paov_sand_plant_microplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in sand", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_sand_microplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_sand_microplastic$Axis.1, yend=lines_sand_microplastic$Axis.2), x = lines_sand_microplastic$Axis.1.means, y = lines_sand_microplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_sand_microplastic <- p0
+
+
+#sand macroplastic
+CAP_bray <- ordinate(PHYSEQ_sand_plant_macroplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_sand_plant_macroplastic), tax_table(PHYSEQ_sand_plant_macroplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_sand_plant_macroplastic)[, "labels"] %in% topphyla), PHYSEQ_sand_plant_macroplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_sand_plant_macroplastic$R2[rownames(bdist_paov_sand_plant_macroplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_sand_plant_macroplastic$`Pr(>F)`[rownames(bdist_paov_sand_plant_macroplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in sand", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_sand_macroplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_sand_macroplastic$Axis.1, yend=lines_sand_macroplastic$Axis.2), x = lines_sand_macroplastic$Axis.1.means, y = lines_sand_macroplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_sand_macroplastic <- p0
+
+
+#sand starch
+CAP_bray <- ordinate(PHYSEQ_sand_plant_starch, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_sand_plant_starch), tax_table(PHYSEQ_sand_plant_starch)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_sand_plant_starch)[, "labels"] %in% topphyla), PHYSEQ_sand_plant_starch)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_sand_plant_starch$R2[rownames(bdist_paov_sand_plant_starch)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_sand_plant_starch$`Pr(>F)`[rownames(bdist_paov_sand_plant_starch)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in sand", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_sand_starch <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_sand_starch$Axis.1, yend=lines_sand_starch$Axis.2), x = lines_sand_starch$Axis.1.means, y = lines_sand_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_sand_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_sand_starch <- p0
+
+
+#root_sand microplastic
+CAP_bray <- ordinate(PHYSEQ_root_sand_plant_microplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_sand_plant_microplastic), tax_table(PHYSEQ_root_sand_plant_microplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_sand_plant_microplastic)[, "labels"] %in% topphyla), PHYSEQ_root_sand_plant_microplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_root_sand_plant_microplastic$R2[rownames(bdist_paov_root_sand_plant_microplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_sand_plant_microplastic$`Pr(>F)`[rownames(bdist_paov_root_sand_plant_microplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in root_sand", axes=c(1,2))
+lines_root_sand_microplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand_microplastic$Axis.1, yend=lines_root_sand_microplastic$Axis.2), x = lines_root_sand_microplastic$Axis.1.means, y = lines_root_sand_microplastic$Axis.2.means, alpha=0.3)
+p0$layers <- p0$layers[-1]
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_sand_microplastic <- p0
+
+
+#root_sand macroplastic
+CAP_bray <- ordinate(PHYSEQ_root_sand_plant_macroplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_sand_plant_macroplastic), tax_table(PHYSEQ_root_sand_plant_macroplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_sand_plant_macroplastic)[, "labels"] %in% topphyla), PHYSEQ_root_sand_plant_macroplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_root_sand_plant_macroplastic$R2[rownames(bdist_paov_root_sand_plant_macroplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_sand_plant_macroplastic$`Pr(>F)`[rownames(bdist_paov_root_sand_plant_macroplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in root_sand", axes=c(1,2))
+lines_root_sand_macroplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand_macroplastic$Axis.1, yend=lines_root_sand_macroplastic$Axis.2), x = lines_root_sand_macroplastic$Axis.1.means, y = lines_root_sand_macroplastic$Axis.2.means, alpha=0.3)
+p0$layers <- p0$layers[-1]
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_sand_macroplastic <- p0
+
+
+#root_sand starch
+CAP_bray <- ordinate(PHYSEQ_root_sand_plant_starch, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_sand_plant_starch), tax_table(PHYSEQ_root_sand_plant_starch)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_sand_plant_starch)[, "labels"] %in% topphyla), PHYSEQ_root_sand_plant_starch)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_root_sand_plant_starch$R2[rownames(bdist_paov_root_sand_plant_starch)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_sand_plant_starch$`Pr(>F)`[rownames(bdist_paov_root_sand_plant_starch)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in root_sand", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_root_sand_starch <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_root_sand_starch$Axis.1, yend=lines_root_sand_starch$Axis.2), x = lines_root_sand_starch$Axis.1.means, y = lines_root_sand_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_sand_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_sand_starch <- p0
+
+
+#root_soil microplastic
+CAP_bray <- ordinate(PHYSEQ_root_soil_plant_microplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_soil_plant_microplastic), tax_table(PHYSEQ_root_soil_plant_microplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_soil_plant_microplastic)[, "labels"] %in% topphyla), PHYSEQ_root_soil_plant_microplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_root_soil_plant_microplastic$R2[rownames(bdist_paov_root_soil_plant_microplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_soil_plant_microplastic$`Pr(>F)`[rownames(bdist_paov_root_soil_plant_microplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in root_soil", axes=c(1,2))
+lines_root_soil_microplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil_microplastic$Axis.1, yend=lines_root_soil_microplastic$Axis.2), x = lines_root_soil_microplastic$Axis.1.means, y = lines_root_soil_microplastic$Axis.2.means, alpha=0.3)
+p0$layers <- p0$layers[-1]
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_soil_microplastic <- p0
+
+
+#root_soil macroplastic
+CAP_bray <- ordinate(PHYSEQ_root_soil_plant_macroplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_soil_plant_macroplastic), tax_table(PHYSEQ_root_soil_plant_macroplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_soil_plant_macroplastic)[, "labels"] %in% topphyla), PHYSEQ_root_soil_plant_macroplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_root_soil_plant_macroplastic$R2[rownames(bdist_paov_root_soil_plant_macroplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_soil_plant_macroplastic$`Pr(>F)`[rownames(bdist_paov_root_soil_plant_macroplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in root_soil", axes=c(1,2))
+lines_root_soil_macroplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil_macroplastic$Axis.1, yend=lines_root_soil_macroplastic$Axis.2), x = lines_root_soil_macroplastic$Axis.1.means, y = lines_root_soil_macroplastic$Axis.2.means, alpha=0.3)
+p0$layers <- p0$layers[-1]
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_soil_macroplastic <- p0
+
+
+#root_soil starch
+CAP_bray <- ordinate(PHYSEQ_root_soil_plant_starch, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_root_soil_plant_starch), tax_table(PHYSEQ_root_soil_plant_starch)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_root_soil_plant_starch)[, "labels"] %in% topphyla), PHYSEQ_root_soil_plant_starch)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_root_soil_plant_starch$R2[rownames(bdist_paov_root_soil_plant_starch)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_root_soil_plant_starch$`Pr(>F)`[rownames(bdist_paov_root_soil_plant_starch)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in root_soil", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_root_soil_starch <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_root_soil_starch$Axis.1, yend=lines_root_soil_starch$Axis.2), x = lines_root_soil_starch$Axis.1.means, y = lines_root_soil_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_root_soil_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_root_soil_starch <- p0
+
+
+#soil microplastic
+CAP_bray <- ordinate(PHYSEQ_soil_plant_microplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_soil_plant_microplastic), tax_table(PHYSEQ_soil_plant_microplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_soil_plant_microplastic)[, "labels"] %in% topphyla), PHYSEQ_soil_plant_microplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_soil_plant_microplastic$R2[rownames(bdist_paov_soil_plant_microplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_soil_plant_microplastic$`Pr(>F)`[rownames(bdist_paov_soil_plant_microplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in soil", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_soil_microplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_soil_microplastic$Axis.1, yend=lines_soil_microplastic$Axis.2), x = lines_soil_microplastic$Axis.1.means, y = lines_soil_microplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant_microplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_soil_microplastic <- p0
+
+
+#soil macroplastic
+CAP_bray <- ordinate(PHYSEQ_soil_plant_macroplastic, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_soil_plant_macroplastic), tax_table(PHYSEQ_soil_plant_macroplastic)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_soil_plant_macroplastic)[, "labels"] %in% topphyla), PHYSEQ_soil_plant_macroplastic)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_soil_plant_macroplastic$R2[rownames(bdist_paov_soil_plant_macroplastic)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_soil_plant_macroplastic$`Pr(>F)`[rownames(bdist_paov_soil_plant_macroplastic)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in soil", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_soil_macroplastic <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_soil_macroplastic$Axis.1, yend=lines_soil_macroplastic$Axis.2), x = lines_soil_macroplastic$Axis.1.means, y = lines_soil_macroplastic$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant_macroplastic@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_soil_macroplastic <- p0
+
+
+#soil starch
+CAP_bray <- ordinate(PHYSEQ_soil_plant_starch, method="CAP", ~ Plastic * Concentration, distance="bray") #CAP
+CAP_bray_var_tbl <- variability_table(CAP_bray) # extract variation details
+phylum.sum <- tapply(taxa_sums(PHYSEQ_soil_plant_starch), tax_table(PHYSEQ_soil_plant_starch)[, "labels"], sum, na.rm=T)
+topphyla <- names(sort(phylum.sum, T))[1:6]
+phy_sub <- prune_taxa((tax_table(PHYSEQ_soil_plant_starch)[, "labels"] %in% topphyla), PHYSEQ_soil_plant_starch)
+score <- paste("[ ~ Conc \n Conc:: ",
+               format(bdist_paov_soil_plant_starch$R2[rownames(bdist_paov_soil_plant_starch)=="Concentration"] * 100, digits=2, nsmall=1),
+               "% var, P=",format(bdist_paov_soil_plant_starch$`Pr(>F)`[rownames(bdist_paov_soil_plant_starch)=="Concentration"], digits=2),"]", sep = "")
+#plot
+p0 <- phyloseq::plot_ordination(phy_sub, CAP_bray, color="Plastic", shape="Concentration", title =  "CAP: Concentration effect in soil", axes=c(1,2))
+p0$layers <- p0$layers[-1]
+lines_soil_starch <- centroid_lines(phy_sub, CAP_bray, c("Plastic","Concentration"))
+p0 <- p0 + geom_segment(aes(xend=lines_soil_starch$Axis.1, yend=lines_soil_starch$Axis.2), x = lines_soil_starch$Axis.1.means, y = lines_soil_starch$Axis.2.means, alpha=0.3)
+p0 <- p0 + geom_point(size=3)
+#p0 <- p0 + geom_text(aes(label=PHYSEQ_soil_plant_starch@sam_data$AccessArray_barcode, size=2))
+p0 <- p0 + scale_color_manual(values=level_cols_Plastic)
+p0 <- p0 + labs(subtitle = score)
+p0 <- p0 + theme_bw()
+fig_soil_starch <- p0
+
+
+### PLOT
+#combine the two plots (library cowplot)
+fig_5.1.2 <- plot_grid(fig_sand_microplastic + theme(legend.position="none"),
+               fig_sand_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_sand_starch + theme(legend.position="none") + labs(colour=""),
+               fig_root_sand_microplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_sand_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_sand_starch + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil_microplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_root_soil_starch + theme(legend.position="none") + labs(colour=""),
+               fig_soil_microplastic + theme(legend.position="none") + labs(colour=""),
+               fig_soil_macroplastic + theme(legend.position="none") + labs(colour=""),
+               fig_soil_starch + theme(legend.position="none") + labs(colour=""),
+               labels=c("Sand","","","Root_sand","","","Root_soil","","","Soil","",""),
+               align = "hv",
+               nrow=4)
+
+#add legend
+legend <- get_legend(fig_sand_microplastic + theme(legend.position="bottom") + labs(fill="Plastic"))
+fig_5.1.2 <- plot_grid(fig_5.1.2, legend, nrow=2, rel_heights=c(1, .1))
+
+#print
+#png("figures/fig5.1.2.png",15000, 20000, res = 600)
+fig_5.1.2
+#dev.off()
+
+```
+
+\vspace{5mm}
+
+**Conclusion:** The bacterial communities differs between the different concentrations in all substrate. The strongest response could be detected in the sand where the concentration explains around 50% of variety within the different plastic treatments.
+
+\vspace{5mm}
+
+**Conclusion beta diversity:** *The microbiome between the different plastic treatments are very different in all four substrates. The plastic concentration has a big impact on the microbial community.*
+
+
+```{r export RDA files, , echo=F, message=F, warning=F}
+
+# create directory
+dir.create("interim")
+dir.create("interim/04_Beta_Diversity")
+
+## set output directory
+setwd("interim/04_Beta_Diversity")
+
+#save objects needed in the following scripts as RDA
+saveRDS(PHYSEQ_sand, "PHYSEQ_sand.RDS")
+saveRDS(PHYSEQ_sand_plant, "PHYSEQ_sand_plant.RDS")
+saveRDS(PHYSEQ_sand_plant_microplastic, "PHYSEQ_sand_plant_microplastic.RDS")
+saveRDS(PHYSEQ_sand_plant_macroplastic, "PHYSEQ_sand_plant_macroplastic.RDS")
+saveRDS(PHYSEQ_sand_plant_starch, "PHYSEQ_sand_plant_starch.RDS")
+
+saveRDS(PHYSEQ_root_sand, "PHYSEQ_root_sand.RDS")
+saveRDS(PHYSEQ_root_sand_plant, "PHYSEQ_root_sand_plant.RDS")
+saveRDS(PHYSEQ_root_sand_plant_microplastic, "PHYSEQ_root_sand_plant_microplastic.RDS")
+saveRDS(PHYSEQ_root_sand_plant_macroplastic, "PHYSEQ_root_sand_plant_macroplastic.RDS")
+saveRDS(PHYSEQ_root_sand_plant_starch, "PHYSEQ_root_sand_plant_starch.RDS")
+
+saveRDS(PHYSEQ_root_soil, "PHYSEQ_root_soil.RDS")
+saveRDS(PHYSEQ_root_soil_plant, "PHYSEQ_root_soil_plant.RDS")
+saveRDS(PHYSEQ_root_soil_plant_microplastic, "PHYSEQ_root_soil_plant_microplastic.RDS")
+saveRDS(PHYSEQ_root_soil_plant_macroplastic, "PHYSEQ_root_soil_plant_macroplastic.RDS")
+saveRDS(PHYSEQ_root_soil_plant_starch, "PHYSEQ_root_soil_plant_starch.RDS")
+
+saveRDS(PHYSEQ_soil, "PHYSEQ_soil.RDS")
+saveRDS(PHYSEQ_soil_plant, "PHYSEQ_soil_plant.RDS")
+saveRDS(PHYSEQ_soil_plant_microplastic, "PHYSEQ_soil_plant_microplastic.RDS")
+saveRDS(PHYSEQ_soil_plant_macroplastic, "PHYSEQ_soil_plant_macroplastic.RDS")
+saveRDS(PHYSEQ_soil_plant_starch, "PHYSEQ_soil_plant_starch.RDS")
+
+#get PCoA dataframe for correlations
+beta_sand_plant <- phyloseq::plot_ordination(PHYSEQ_sand_plant, phyloseq::ordinate(PHYSEQ_sand_plant, method="PCoA", distance="bray"), justDF = T)
+beta_sand_plant_microplastic <- phyloseq::plot_ordination(PHYSEQ_sand_plant_microplastic, phyloseq::ordinate(PHYSEQ_sand_plant_microplastic, method="PCoA", distance="bray"), justDF = T)
+beta_sand_plant_macroplastic <- phyloseq::plot_ordination(PHYSEQ_sand_plant_macroplastic, phyloseq::ordinate(PHYSEQ_sand_plant_macroplastic, method="PCoA", distance="bray"), justDF = T)
+beta_sand_plant_starch <- phyloseq::plot_ordination(PHYSEQ_sand_plant_starch, phyloseq::ordinate(PHYSEQ_sand_plant_starch, method="PCoA", distance="bray"), justDF = T)
+
+beta_root_sand_plant <- phyloseq::plot_ordination(PHYSEQ_root_sand_plant, phyloseq::ordinate(PHYSEQ_root_sand_plant, method="PCoA", distance="bray"), justDF = T)
+beta_root_sand_plant_microplastic <- phyloseq::plot_ordination(PHYSEQ_root_sand_plant_microplastic, phyloseq::ordinate(PHYSEQ_root_sand_plant_microplastic, method="PCoA", distance="bray"), justDF = T)
+beta_root_sand_plant_macroplastic <- phyloseq::plot_ordination(PHYSEQ_root_sand_plant_macroplastic, phyloseq::ordinate(PHYSEQ_root_sand_plant_macroplastic, method="PCoA", distance="bray"), justDF = T)
+beta_root_sand_plant_starch <- phyloseq::plot_ordination(PHYSEQ_root_sand_plant_starch, phyloseq::ordinate(PHYSEQ_root_sand_plant_starch, method="PCoA", distance="bray"), justDF = T)
+
+beta_root_soil_plant <- phyloseq::plot_ordination(PHYSEQ_root_soil_plant, phyloseq::ordinate(PHYSEQ_root_soil_plant, method="PCoA", distance="bray"), justDF = T)
+beta_root_soil_plant_microplastic <- phyloseq::plot_ordination(PHYSEQ_root_soil_plant_microplastic, phyloseq::ordinate(PHYSEQ_root_soil_plant_microplastic, method="PCoA", distance="bray"), justDF = T)
+beta_root_soil_plant_macroplastic <- phyloseq::plot_ordination(PHYSEQ_root_soil_plant_macroplastic, phyloseq::ordinate(PHYSEQ_root_soil_plant_macroplastic, method="PCoA", distance="bray"), justDF = T)
+beta_root_soil_plant_starch <- phyloseq::plot_ordination(PHYSEQ_root_soil_plant_starch, phyloseq::ordinate(PHYSEQ_root_soil_plant_starch, method="PCoA", distance="bray"), justDF = T)
+
+beta_soil_plant <- phyloseq::plot_ordination(PHYSEQ_soil_plant, phyloseq::ordinate(PHYSEQ_soil_plant, method="PCoA", distance="bray"), justDF = T)
+beta_soil_plant_microplastic <- phyloseq::plot_ordination(PHYSEQ_soil_plant_microplastic, phyloseq::ordinate(PHYSEQ_soil_plant_microplastic, method="PCoA", distance="bray"), justDF = T)
+beta_soil_plant_macroplastic <- phyloseq::plot_ordination(PHYSEQ_soil_plant_macroplastic, phyloseq::ordinate(PHYSEQ_soil_plant_macroplastic, method="PCoA", distance="bray"), justDF = T)
+beta_soil_plant_starch <- phyloseq::plot_ordination(PHYSEQ_soil_plant_starch, phyloseq::ordinate(PHYSEQ_soil_plant_starch, method="PCoA", distance="bray"), justDF = T)
+
+#save PCoA dataframe
+saveRDS(beta_sand_plant, "beta_sand_plant.RDS")
+saveRDS(beta_sand_plant_microplastic, "beta_sand_plant_microplastic.RDS")
+saveRDS(beta_sand_plant_macroplastic, "beta_sand_plant_macroplastic.RDS")
+saveRDS(beta_sand_plant_starch, "beta_sand_plant_starch.RDS")
+saveRDS(beta_root_sand_plant, "beta_root_sand_plant.RDS")
+saveRDS(beta_root_sand_plant_microplastic, "beta_root_sand_plant_microplastic.RDS")
+saveRDS(beta_root_sand_plant_macroplastic, "beta_root_sand_plant_macroplastic.RDS")
+saveRDS(beta_root_sand_plant_starch, "beta_root_sand_plant_starch.RDS")
+saveRDS(beta_root_soil_plant, "beta_root_soil_plant.RDS")
+saveRDS(beta_root_soil_plant_microplastic, "beta_root_soil_plant_microplastic.RDS")
+saveRDS(beta_root_soil_plant_macroplastic, "beta_root_soil_plant_macroplastic.RDS")
+saveRDS(beta_root_soil_plant_starch, "beta_root_soil_plant_starch.RDS")
+saveRDS(beta_soil_plant, "beta_soil_plant.RDS")
+saveRDS(beta_soil_plant_microplastic, "beta_soil_plant_microplastic.RDS")
+saveRDS(beta_soil_plant_macroplastic, "beta_soil_plant_macroplastic.RDS")
+saveRDS(beta_soil_plant_starch, "beta_soil_plant_starch.RDS")
+
+```
+
+\pagebreak

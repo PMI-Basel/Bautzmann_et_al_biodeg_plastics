@@ -1,0 +1,800 @@
+---
+title: "Microplastic - 01: Import & Normalization"
+author: "Jan Waelchli"
+geometry: margin=2cm
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+---
+
+\pagebreak
+
+# Experimental Setup
+
+Arabidopsis thaliana plants were grown on sand or soil. The Plants were treated either with no plastic (CTRL), microplastic, macroplastic or starch. The plastic were added in 3% V/V concentration or 10% V/V concentrations. As additional controls, all the treatments were also performed without a plant.
+
+```{r setup, include=FALSE, echo=F, message=F, warning=F}
+
+##clear the objects from memory
+rm(list=ls())
+
+#knitr settings
+knitr::opts_chunk$set(echo=TRUE, fig.align="center")
+options(tinytex.verbose = TRUE)
+
+#set seed
+set.seed(100)
+
+#set paths
+paths <- list(DESIGN = c("design_stats.xlsx"),
+              bASV_table = c("../4_output/bacteria_ASV/bacteria_DAT100.tab"),
+              taxa = c("../4_output/bacteria_ASV/bacteria_taxa100.tab"),
+              track = c("../4_output/bacteria_ASV/quality_check/bacteria_track.xlsx"),
+              functions="functions/"
+          )
+
+## set source
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path))
+
+## load functions
+source(paste0(paths$functions,"functions.R"))
+functions(path=paths$functions)
+
+## installs (if necessary) and loads libraries
+libraries()
+library(dplyr)
+library(tidyverse)
+
+```
+
+```{r import design, echo=F, message=F, warning=F}
+
+#import design file
+DESIGN <- read_excel(paths$DESIGN)
+
+#remove contaminated sample
+DESIGN <- DESIGN[DESIGN$SampleID!="contaminated",]
+
+#split controls from DESIGN file
+DESIGN_controls <- DESIGN[grepl("NT*C", DESIGN$SampleID),]
+DESIGN <- DESIGN[!(DESIGN$SampleID %in% DESIGN_controls$SampleID),]
+
+#factors
+DESIGN$Treatment <- factor(DESIGN$Treatment, levels=c("CTRL_plant", "CTRL_substrate", "CTRL_substrate_microplastic_10", "CTRL_substrate_macroplastic_10", "CTRL_substrate_starch_10", "microplastic_3", "microplastic_10", "macroplastic_3", "macroplastic_10", "starch_3", "starch_10"))
+DESIGN$Plastic <- factor(DESIGN$Plastic, levels=c("CTRL", "microplastic", "macroplastic", "starch"))
+DESIGN$Substrate <- factor(DESIGN$Substrate, levels = c("Sand", "Soil", "Root_sand", "Root_soil"))
+DESIGN$Substrate <- as.factor(DESIGN$Substrate)
+
+#additional columns
+#....
+
+#colors
+DESIGN$cols_Plastic <- NA
+DESIGN$cols_Plastic[DESIGN$Plastic=="CTRL"] <- "darkslategray"
+DESIGN$cols_Plastic[DESIGN$Plastic=="microplastic"] <- "darkolivegreen2"
+DESIGN$cols_Plastic[DESIGN$Plastic=="macroplastic"] <- "darkseagreen4"
+DESIGN$cols_Plastic[DESIGN$Plastic=="starch"] <- "gold"
+
+DESIGN$cols_Substrate <- NA
+DESIGN$cols_Substrate[DESIGN$Substrate=="Sand"] <- "deepskyblue"
+DESIGN$cols_Substrate[DESIGN$Substrate=="Soil"] <- "tan4"
+DESIGN$cols_Substrate[DESIGN$Substrate=="Root_sand"] <- "seagreen2"
+DESIGN$cols_Substrate[DESIGN$Substrate=="Root_soil"] <- "seagreen4"
+
+## collapsed color vectors
+temp <- data.frame(DESIGN$Plastic, DESIGN$cols_Plastic)
+temp <- plyr::ddply(temp, .variables="DESIGN.cols_Plastic", .fun=unique)
+level_cols_Plastic <- as.character(temp[,2])
+names(level_cols_Plastic) <- temp[,1]
+
+temp <- data.frame(DESIGN$Substrate, DESIGN$cols_Substrate)
+temp <- plyr::ddply(temp, .variables="DESIGN.cols_Substrate", .fun=unique)
+level_cols_Substrate <- as.character(temp[,2])
+names(level_cols_Substrate) <- temp[,1]
+
+```
+
+```{r DAT import, echo=F, message=F, warning=F, include=F}
+
+### BACTERIA ###
+
+#import ASV table
+all_DAT <- read.delim(paths$bASV_table, header=T, row.names=1, sep="\t")
+all_DAT <- t(all_DAT)
+
+# simplify names
+colnames(all_DAT) <- gsub("_F_filt.fastq", "", colnames(all_DAT))
+colnames(all_DAT) <- gsub("runBE13-", "", colnames(all_DAT))
+
+
+#remove samples not in DAT
+samples_to_keep <- which(DESIGN$AccessArray_barcode %in% colnames(all_DAT))
+DESIGN <- DESIGN[samples_to_keep,]
+#sort
+order <- match(DESIGN$AccessArray_barcode, colnames(all_DAT))
+DAT <- as.data.frame(all_DAT[, order])
+#sum(colnames(DAT) == DESIGN$AccessArray_barcode) == length(DESIGN$AccessArray_barcode) #check if order is identical
+
+#split make control DAT
+order <- match(DESIGN_controls$AccessArray_barcode, colnames(all_DAT))
+DAT_controls <- as.data.frame(all_DAT[, order])
+
+#remove 
+rm(all_DAT)
+
+```
+
+```{r TAX import, echo=F, message=F, warning=F, include=F}
+
+### BACTERIA ###
+
+#import taxonomy table
+TAX <- read.table(paths$taxa, row.names=1, sep="\t", blank.lines.skip = FALSE)
+
+#rename
+colnames(TAX) <- c("kingdom", "phylum", "class", "order", "family", "genus")
+rownames(TAX) <- gsub(">ASV","ASV", rownames(TAX))
+TAX[is.na(TAX)] <- "unassigned"
+
+# define ASVs for removal
+r1 <- -which(TAX$kingdom=="Eukaryota")
+r2 <- -which(TAX$phylum=="Cyanobacteria")
+r3 <- -which(TAX$family=="Mitochondria")
+r4 <- -which(is.na(TAX)) #rows all na
+ASVs_to_remove <- c(r1,r2,r3,r4)
+if(length(ASVs_to_remove)>0){
+  TAX <- TAX[ASVs_to_remove ,]
+  DAT <- DAT[rownames(TAX),]
+}
+
+#add ASV_ID to TAXonomy file
+TAX$ASV_ID <- rownames(TAX)
+
+#levels
+TAX$phylum <- as.factor(TAX$phylum)
+levels(TAX$phylum)[levels(TAX$phylum) < 2 ] <- "unassigned"
+# defining ASV colors by phylum (using the TAXonomy file)
+TAX$labels <- as.character(TAX$phylum)
+# create separate TAXonomy label specifying classes of Proteobacteria
+TAX$class <- as.factor(TAX$class)
+try(TAX[ TAX$class=="Alphaproteobacteria", ]$labels <- "Alphaproteobacteria")
+try(TAX[ TAX$class=="Betaproteobacteria", ]$labels <- "Betaproteobacteria")
+try(TAX[ TAX$class=="Gammaproteobacteria", ]$labels <- "Gammaproteobacteria")
+try(TAX[ TAX$class=="Deltaproteobacteria", ]$labels <- "Deltaproteobacteria")
+TAX$labels <- as.factor(TAX$labels)
+# vector of colors for abundant phyla (and classes for Proteobacteria)
+# will be used for graphs later
+TAX$cols_phyla <- as.character(TAX$labels)
+TAX$cols_phyla <- "lightgrey"
+try(TAX[ TAX$labels=="Alphaproteobacteria" , ]$cols_phyla <- "palegreen1")
+try(TAX[ TAX$labels=="Betaproteobacteria" , ]$cols_phyla <- "palegreen3")
+try(TAX[ TAX$labels=="Gammaproteobacteria" , ]$cols_phyla <- "palegreen4")
+try(TAX[ TAX$labels=="Deltaproteobacteria" , ]$cols_phyla <- "olivedrab1")
+try(TAX[ TAX$labels=="Actinobacteria" , ]$cols_phyla <- "indianred2")
+try(TAX[ TAX$labels=="Bacteroidetes" , ]$cols_phyla <- "steelblue1")
+try(TAX[ TAX$labels=="Firmicutes" , ]$cols_phyla <- "tan1")
+try(TAX[ TAX$labels=="Acidobacteria" , ]$cols_phyla <- "lightsalmon4")
+try(TAX[ TAX$labels=="Chloroflexi" , ]$cols_phyla <- "gold1")
+try(TAX[ TAX$labels=="Verrucomicrobia", ]$cols_phyla <- "orchid3")
+try(TAX[ TAX$labels=="Gemmatimonadetes", ]$cols_phyla <- "peachpuff3")
+try(TAX[ TAX$labels=="Nanoarchaeaeota" , ]$cols_phyla <- "dodgerblue2")
+try(TAX[ TAX$labels=="Planctomycetes" , ]$cols_phyla <- "pink")
+try(TAX[ TAX$labels=="Thaumarchaeota" , ]$cols_phyla <- "goldenrod2")
+try(TAX[ TAX$labels=="Patescibacteria" , ]$cols_phyla <- "darkgoldenrod3")
+try(TAX[ TAX$labels=="Rokubacteria" , ]$cols_phyla <- "darkorchid3")
+## collapsed color vector for each level
+temp <- data.frame(TAX$labels, TAX$cols_phyla)
+temp <- plyr::ddply(temp, .variables="TAX.labels", .fun=unique)
+TAX_level_cols_phyla <- as.character(temp[,2])
+names(TAX_level_cols_phyla) <- temp[,1]
+
+# remove no longer used files
+rm(temp)
+
+```
+
+### Figure 1.1 \| Rarefaction
+
+I a first step we conduct a rarefaction plot to make sure that we have sequenced deep enough.
+
+\vspace{5mm}
+
+```{r rarefaction, eval=T, echo=F, message=F, warning=F, fig.height=5, fig.width=6}
+
+#rarefy
+pdf("/dev/null") #prevents drawing of standard rarefaction plot (we will create our own with colors)
+brarefaction <- rarecurve(t(DAT), step=200, 7000)
+invisible(dev.off())
+
+#png("rarefaction.png",4000, 3200, res = 600)
+
+#limit for plotting
+bSmax <- sapply(brarefaction, max)
+
+### BACTERIA ###
+#plot rarefaction
+par(mar=c(5.1, 4.1, 2.1, 2.1), xpd=F)#add extra space on the rigth side
+plot(c(1, 50000), c(1, max(bSmax)), xlab="Sequencing depth", main="Bacteria: Rarefaction",
+     ylab="number of ASVs", type="n", las=1, ylim=c(0,600))
+for (i in seq_along(brarefaction)) {
+  N <- attr(brarefaction[[i]], "Subsample")
+  lines(N, brarefaction[[i]], col=DESIGN$cols_Substrate[i], lwd=0.5)
+}
+#add rarefaction threshold
+#abline(v=b_rare,lty = "longdash", lwd=2)
+
+legend("bottomright", title.adj = 0.2, title = "Substrate", inset=c(0, 0),
+       legend=names(level_cols_Substrate),
+       pch=16, bty = "n", col=level_cols_Substrate)
+
+#dev.off()
+
+```
+
+\pagebreak
+
+### Figure 1.2 \| Number of reads
+
+Before we normalize, we do another control plot. We plot the amount of reads during each pipeline step. This allows us to see where we loses how much reads.
+
+\vspace{5mm}
+
+```{r track sequences, eval=T, echo=F, message=F, warning=F}
+
+#import
+track <- read_xlsx(paths$track)
+colnames(track)[1] <- "AccessArray"
+track$AccessArray <- gsub("runBE13-","",track$AccessArray)
+track$AccessArray <- gsub("_F","",track$AccessArray)
+
+#sort in order of Design
+order <- match(DESIGN$AccessArray_barcode, track$AccessArray)
+track <- track[order,]
+
+#add seqs after removing eukaryota seqs
+track$noneukar <- colSums(DAT)
+
+#add substrate groups
+track$Substrate <- factor(DESIGN$Substrate, levels=c("Sand","Soil","Root_sand","Root_soil"))
+track_long <- pivot_longer(track, cols= !(c("AccessArray", "Substrate")), names_to = "steps", values_to = "reads")
+
+track_long$Substrate <- factor(track_long$Substrate, levels=c("Sand","Soil","Root_sand","Root_soil"))
+track_long$steps <- factor(track_long$steps, levels=c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim", "noneukar"))
+levels(track_long$steps)[1] <- "demultiplexed"
+
+ggplot(track_long, aes(steps, reads, col=Substrate, group=Substrate))+
+  geom_jitter(alpha=0.1, width = 0.2)+
+  geom_smooth(aes(), se=F, method="loess", formula="y~x")+
+  scale_color_manual(values=level_cols_Substrate)+
+  theme_bw()+
+  facet_grid(~"Number of reads")
+
+```
+
+**Conclusion:** Samples from sand, roots and soil seems to be sequenced similar deep. We loose more roots samples at the end by filtering out plant and other eukaryotic reads. Nevertheless, the samples are similar deep sequenced so that we can set a common threshold.
+
+```{r subset data, eval=T, echo=F, message=F, warning=F}
+
+#subset
+DESIGN_sand <- DESIGN[DESIGN$Substrate == "Sand",]
+DAT_sand <- DAT[,colnames(DAT) %in% DESIGN_sand$AccessArray_barcode]
+DAT_sand <- DAT_sand[rowSums(DAT_sand) > 0,]
+TAX_sand <- TAX[(rownames(TAX) %in% rownames(DAT_sand)),]
+
+DESIGN_root_sand <- DESIGN[DESIGN$Substrate == "Root_sand",]
+DAT_root_sand <- DAT[,colnames(DAT) %in% DESIGN_root_sand$AccessArray_barcode]
+DAT_root_sand <- DAT_root_sand[rowSums(DAT_root_sand) > 0,]
+TAX_root_sand <- TAX[(rownames(TAX) %in% rownames(DAT_root_sand)),]
+
+DESIGN_root_soil <- DESIGN[DESIGN$Substrate == "Root_soil",]
+DAT_root_soil <- DAT[,colnames(DAT) %in% DESIGN_root_soil$AccessArray_barcode]
+DAT_root_soil <- DAT_root_soil[rowSums(DAT_root_soil) > 0,]
+TAX_root_soil <- TAX[(rownames(TAX) %in% rownames(DAT_root_soil)),]
+
+DESIGN_soil <- DESIGN[DESIGN$Substrate == "Soil",]
+DAT_soil <- DAT[,colnames(DAT) %in% DESIGN_soil$AccessArray_barcode]
+DAT_soil <- DAT_soil[rowSums(DAT_soil) > 0,]
+TAX_soil <- TAX[(rownames(TAX) %in% rownames(DAT_soil)),]
+
+```
+
+\pagebreak
+
+# Normalization
+
+To decide on how to normalize the data we followed the recommendation of Weiss et al. (2017, Microbiome Journal) and we inspected whether there are differences in sequencing depths between the different treatments in each substrate by using the non-parametric Kruskal-Wallis Test.
+
+## Sequencing depth
+
+We show the sum, range and median over all samples. Eight bacterial samples were previous removed due to very low sequencing depth.
+
+### Bacteria
+
+```{r seq numbers bacteria, echo=F, message=F, warning=F}
+
+df <- data.frame(Substrate=levels(DESIGN$Substrate), removed_samples=NA, 
+                 sum_seqs=NA, min_seqs=NA, max_seqs=NA, median_seqs=NA, median_ASVs=NA)
+
+
+#treshold for keeping samples
+threshold <-  10000
+
+#show sorted seq numbers
+#sort(colSums(DAT_sand),decreasing = T)
+
+#remove samples with very low seq numbers
+samples_to_remove_sand <- names(which(colSums(DAT_sand) < threshold))
+
+#print(paste(length(samples_to_remove_sand),"samples removed"))
+df$removed_samples[df$Substrate == "Sand"] <- length(samples_to_remove_sand)
+#pander(sort(colSums(DAT_sand[,colnames(DAT_sand) %in% samples_to_remove_sand]),decreasing=T))
+
+DESIGN_sand <- DESIGN_sand[!(DESIGN_sand$AccessArray_barcode %in% samples_to_remove_sand),]
+DAT_sand <- DAT_sand[,!(colnames(DAT_sand) %in% samples_to_remove_sand)]
+ASVs_to_remove <- names(which(rowSums(DAT_sand) == 0))
+DAT_sand <- DAT_sand[!(rownames(DAT_sand) %in% ASVs_to_remove),]
+TAX_sand <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#seq numbers
+#paste ("sum:", sum(colSums(DAT_sand)))
+#paste (c("min:","max:"), range(colSums(DAT_sand)))
+#paste ("median:", median(colSums(DAT_sand)))
+df$sum_seqs[df$Substrate == "Sand"] <- sum(colSums(DAT_sand))
+df$min_seqs[df$Substrate == "Sand"] <- min(colSums(DAT_sand))
+df$max_seqs[df$Substrate == "Sand"] <- max(colSums(DAT_sand))
+df$median_seqs[df$Substrate == "Sand"] <- median(colSums(DAT_sand))
+df$median_ASVs[df$Substrate == "Sand"] <- median(colSums(DAT_sand>0))
+
+#number of reads from the sample with the lowest seq-depth
+min_sand <- min(colSums(DAT_sand))
+
+
+#root_sand
+
+#show sorted seq numbers
+#sort(colSums(DAT_root_sand),decreasing = T)
+
+#remove samples with very low seq numbers
+samples_to_remove_root_sand <- names(which(colSums(DAT_root_sand) < threshold))
+
+#print(paste(length(samples_to_remove_root_sand),"samples removed"))
+df$removed_samples[df$Substrate == "Root_sand"] <- length(samples_to_remove_root_sand)
+#pander(sort(colSums(DAT_root_sand[,colnames(DAT_root_sand) %in% samples_to_remove_root_sand]),decreasing=T))
+
+DESIGN_root_sand <- DESIGN_root_sand[!(DESIGN_root_sand$AccessArray_barcode %in% samples_to_remove_root_sand),]
+DAT_root_sand <- DAT_root_sand[,!(colnames(DAT_root_sand) %in% samples_to_remove_root_sand)]
+ASVs_to_remove <- names(which(rowSums(DAT_root_sand) == 0))
+DAT_root_sand <- DAT_root_sand[!(rownames(DAT_root_sand) %in% ASVs_to_remove),]
+TAX_root_sand <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#seq numbers
+# paste ("sum:", sum(colSums(DAT_root_sand)))
+# paste (c("min:","max:"), range(colSums(DAT_root_sand)))
+# paste ("median:", median(colSums(DAT_root_sand)))
+df$sum_seqs[df$Substrate == "Root_sand"] <- sum(colSums(DAT_root_sand))
+df$min_seqs[df$Substrate == "Root_sand"] <- min(colSums(DAT_root_sand))
+df$max_seqs[df$Substrate == "Root_sand"] <- max(colSums(DAT_root_sand))
+df$median_seqs[df$Substrate == "Root_sand"] <- median(colSums(DAT_root_sand))
+df$median_ASVs[df$Substrate == "Root_sand"] <- median(colSums(DAT_root_sand>0))
+
+#number of reads from the sample with the lowest seq-depth
+min_root_sand <- min(colSums(DAT_root_sand))
+
+
+#root_soil
+
+#show sorted seq numbers
+#sort(colSums(DAT_root_soil),decreasing = T)
+
+#remove samples with very low seq numbers
+samples_to_remove_root_soil <- names(which(colSums(DAT_root_soil) < threshold))
+
+#print(paste(length(samples_to_remove_root_soil),"samples removed"))
+df$removed_samples[df$Substrate == "Root_soil"] <- length(samples_to_remove_root_soil)
+#pander(sort(colSums(DAT_root_soil[,colnames(DAT_root_soil) %in% samples_to_remove_root_soil]),decreasing=T))
+
+DESIGN_root_soil <- DESIGN_root_soil[!(DESIGN_root_soil$AccessArray_barcode %in% samples_to_remove_root_soil),]
+DAT_root_soil <- DAT_root_soil[,!(colnames(DAT_root_soil) %in% samples_to_remove_root_soil)]
+ASVs_to_remove <- names(which(rowSums(DAT_root_soil) == 0))
+DAT_root_soil <- DAT_root_soil[!(rownames(DAT_root_soil) %in% ASVs_to_remove),]
+TAX_root_soil <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#seq numbers
+# paste ("sum:", sum(colSums(DAT_root_soil)))
+# paste (c("min:","max:"), range(colSums(DAT_root_soil)))
+# paste ("median:", median(colSums(DAT_root_soil)))
+df$sum_seqs[df$Substrate == "Root_soil"] <- sum(colSums(DAT_root_soil))
+df$min_seqs[df$Substrate == "Root_soil"] <- min(colSums(DAT_root_soil))
+df$max_seqs[df$Substrate == "Root_soil"] <- max(colSums(DAT_root_soil))
+df$median_seqs[df$Substrate == "Root_soil"] <- median(colSums(DAT_root_soil))
+df$median_ASVs[df$Substrate == "Root_soil"] <- median(colSums(DAT_root_soil>0))
+
+#number of reads from the sample with the lowest seq-depth
+min_root_soil <- min(colSums(DAT_root_soil))
+
+
+#soil
+
+#show sorted seq numbers
+#sort(colSums(DAT_soil),decreasing = T)
+
+#remove samples with very low seq numbers
+samples_to_remove_soil <- names(which(colSums(DAT_soil) < threshold))
+
+#print(paste(length(samples_to_remove_soil),"samples removed"))
+df$removed_samples[df$Substrate == "Soil"] <- length(samples_to_remove_soil)
+#pander(sort(colSums(DAT_soil[,colnames(DAT_soil) %in% samples_to_remove_soil]),decreasing=T))
+
+DESIGN_soil <- DESIGN_soil[!(DESIGN_soil$AccessArray_barcode %in% samples_to_remove_soil),]
+DAT_soil <- DAT_soil[,!(colnames(DAT_soil) %in% samples_to_remove_soil)]
+ASVs_to_remove <- names(which(rowSums(DAT_soil) == 0))
+DAT_soil <- DAT_soil[!(rownames(DAT_soil) %in% ASVs_to_remove),]
+TAX_soil <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#seq numbers
+# paste ("sum:", sum(colSums(DAT_soil)))
+# paste (c("min:","max:"), range(colSums(DAT_soil)))
+# paste ("median:", median(colSums(DAT_soil)))
+df$sum_seqs[df$Substrate == "Soil"] <- sum(colSums(DAT_soil))
+df$min_seqs[df$Substrate == "Soil"] <- min(colSums(DAT_soil))
+df$max_seqs[df$Substrate == "Soil"] <- max(colSums(DAT_soil))
+df$median_seqs[df$Substrate == "Soil"] <- median(colSums(DAT_soil))
+df$median_ASVs[df$Substrate == "Soil"] <- median(colSums(DAT_soil>0))
+
+#number of reads from the sample with the lowest seq-depth
+min_soil <- min(colSums(DAT_soil))
+
+#out
+pander(df)
+
+#all (for the plot)
+samples_to_remove <- c(samples_to_remove_sand, samples_to_remove_root_sand, samples_to_remove_root_soil, samples_to_remove_soil)
+DESIGN <- DESIGN[!(DESIGN$AccessArray_barcode %in% samples_to_remove),]
+DAT <- DAT[,!(colnames(DAT) %in% samples_to_remove)]
+ASVs_to_remove <- names(which(rowSums(DAT) == 0))
+DAT <- DAT[!(rownames(DAT) %in% ASVs_to_remove),]
+TAX <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#get rarefaction threshold (round down to 100)
+rare_threshold <- floor((min(df$min))/100)*100
+
+```
+
+### Figure 2 \| Sequencing depth
+
+\vspace{5mm}
+
+```{r Figure 2, fig.height=7, fig.width=9, echo=F, warning=F, message=F}
+
+## boxplot
+
+df <- data.frame(col_sum=colSums(DAT),colnames=colnames(DAT), Substrate=DESIGN$Substrate, 
+                 Plastic=DESIGN$Plastic, Concentration=DESIGN$Concentration,
+                 group=as.factor(paste(DESIGN$Substrate, DESIGN$Treatment, sep=)))
+
+ylim2=boxplot.stats(df$col_sum)$stats[c(1, 5)]
+
+seq_nr <- ggplot(data=df, aes(x=Plastic, y=col_sum, fill=Plastic)) + 
+              geom_boxplot(position=position_dodge2(width=0.75, preserve="single"),outlier.colour = NA) + 
+              geom_jitter(aes(col=Concentration, group=group), size=1, position=position_jitterdodge(jitter.width=0.2,dodge.width = 0.75))+
+              theme_bw() +
+              theme(legend.position="none") +
+              ylab("seq") +
+              scale_fill_manual(values=level_cols_Plastic) +
+              scale_color_manual(values=c("gray20","gray50","gray80")) +
+              coord_cartesian(ylim=ylim2*1.05) +
+              facet_grid(.~ Substrate, scales='free_x', space="free")+
+              theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size=7), strip.text = element_text(size = 6)) +
+              ggtitle("Bacteria: Sequencing depth")
+
+## barplot
+df <- df[order(df$col_sum, decreasing = T),]
+df <- df[order(df$Substrate),]
+df$x <- c(1:sum(df$Substrate == "Sand"), 1:sum(df$Substrate == "Soil"), 1:sum(df$Substrate == "Root_sand"), 1:sum(df$Substrate == "Root_soil"))
+
+samples <-  ggplot(df, aes(x=x, y=col_sum, fill=Plastic, color=Plastic))+
+                geom_bar(aes(width=1), size=0.1, stat = "identity", col="black", lty=0.5)+
+                #scale_y_continuous(trans = 'log2')+
+                scale_fill_manual(values=level_cols_Plastic) +
+                scale_colour_manual(values = level_cols_Plastic) +
+                xlab("samples")+
+                ylab("seq / samples")+
+                facet_grid(.~ Substrate, scales='free_x', space="free")+
+                theme_bw() +
+                #geom_text(aes(label=colnames), angle=90, hjust=-0.3, size=2)+
+                theme(axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+                      strip.background = element_blank(), strip.text.x = element_blank(), legend.position = "none")
+                #ggtitle("Sequencing depth per sample")
+
+
+#combine the two plots (library cowplot)
+plot <- plot_grid(seq_nr + theme(legend.position="none"),
+               samples + theme(legend.position="none") + labs(colour=""),
+               #labels=c("A","B"),
+               align = "hv",
+               rel_heights = c(9,5),
+               nrow=2)
+
+legend <- get_legend(seq_nr + theme(legend.position="bottom") + labs(fill="Substrate"))
+fig2 <- plot_grid(plot, legend, nrow=2, rel_heights=c(1, .1))
+
+#print
+# png("figures/fig2.png",6400, 4000, res = 600)
+fig2
+# dev.off()
+
+
+```
+
+\pagebreak
+
+## Asymptotic Kruskal-Wallis Test
+
+We test for different sequencing depths between the treatments
+
+```{r seq numbers per group bacteria, echo=F, message=F, warning=F}
+
+#sand
+group <- DESIGN_sand$Treatment
+sample_depth <- colSums(DAT_sand)
+DAT_krusk <- kruskal_test(sample_depth ~ group)  # library(coin)
+print("Sand")
+DAT_krusk
+
+#root_sand
+group <- DESIGN_root_sand$Treatment
+sample_depth <- colSums(DAT_root_sand)
+DAT_krusk <- kruskal_test(sample_depth ~ group)  # library(coin)
+print("Root_sand")
+DAT_krusk
+
+#root_soil
+group <- DESIGN_root_soil$Treatment
+sample_depth <- colSums(DAT_root_soil)
+DAT_krusk <- kruskal_test(sample_depth ~ group)  # library(coin)
+print("Root_soil")
+DAT_krusk
+
+
+#soil
+group <- DESIGN_soil$Treatment
+sample_depth <- colSums(DAT_soil)
+DAT_krusk <- kruskal_test(sample_depth ~ group)  # library(coin)
+print("Soil")
+DAT_krusk
+
+```
+
+**Conclusion:** Because there are significant differences between the treatments in sand and marginal differences in roots from sand, we normalize the data by rarefication for diversity comparisions (see Weiss et al. (2017), Microbiome Journal). For consistency we do it for sand, root and soil. We define the rarefaction threshold per sample to `r rare_threshold`.
+
+
+```{r DAT rare, warning=F, echo=F}
+
+# rarefication with library(vegan)
+DAT_sand_rare <- t(rrarefy(t(DAT_sand), rare_threshold))
+DAT_root_sand_rare <- t(rrarefy(t(DAT_root_sand), rare_threshold))
+DAT_root_soil_rare <- t(rrarefy(t(DAT_root_soil), rare_threshold))
+DAT_soil_rare <- t(rrarefy(t(DAT_soil), rare_threshold))
+
+#remove ASVs with 0 seqs
+DAT_sand_rare <- DAT_sand_rare[rowSums(DAT_sand_rare) > 0,]  # removal of rows with 0 values
+DAT_root_sand_rare <- DAT_root_sand_rare[rowSums(DAT_root_sand_rare) > 0,]  # removal of rows with 0 values
+DAT_root_soil_rare <- DAT_root_soil_rare[rowSums(DAT_root_soil_rare) > 0,]  # removal of rows with 0 values
+DAT_soil_rare <- DAT_soil_rare[rowSums(DAT_soil_rare) > 0,]  # removal of rows with 0 values
+
+#all togehter
+temp1 <- t(rrarefy(t(DAT[colnames(DAT) %in% DESIGN_sand$AccessArray_barcode]), rare_threshold))
+temp2 <- t(rrarefy(t(DAT[colnames(DAT) %in% DESIGN_root_sand$AccessArray_barcode]), rare_threshold))
+temp3 <- t(rrarefy(t(DAT[colnames(DAT) %in% DESIGN_root_soil$AccessArray_barcode]), rare_threshold))
+temp4 <- t(rrarefy(t(DAT[colnames(DAT) %in% DESIGN_soil$AccessArray_barcode]), rare_threshold))
+DAT_rare <- cbind(temp1, temp2, temp3, temp4); rm(temp1, temp2, temp3, temp4)
+DAT_rare <- DAT_rare[rowSums(DAT_rare) > 0,]  # removal of rows with 0 values
+
+#match order
+order <- match(DESIGN$AccessArray_barcode, colnames(DAT_rare))
+DAT_rare <- as.data.frame(DAT_rare[, order])
+
+
+```
+
+\pagebreak
+
+## Outlier Detection
+
+We use the method CLOUD developped by Montassier et al. 2018, which is a non.parametric detection test for outliers. We perform the test with Bray-Curtis distances from the rarefied data for each substrate and each plastic treatment individually. We set the number of nearest neighbors to 60% of the samples size and chose an empirical outlier percentile of 0.1. We remove all outliers from our data.
+
+```{r outlier detection, warning=F, echo=F}
+
+#function to detect outliers
+detect_outliers <- function(DESIGN, DAT_rare, Plastic){
+
+  #subset
+  samples_sub <- DESIGN$AccessArray_barcode[DESIGN$Plastic == Plastic]
+  DAT_sub <- DAT_rare[,colnames(DAT_rare) %in% samples_sub]
+  bdist <- vegdist(t(DAT_sub), method="bray")
+  
+  #test
+  k <- floor(ncol(DAT_sub) * 0.6) #number of nearest neighbors, here we chose 60% of sample size
+  test <- piecewise_kn_V1(d = bdist, test.ix = colnames(DAT_sub), k = k) #CLOUD test from Montassier et al. 2018
+  outliers <- colnames(DAT_sub)[test[["pvals"]]<=0.1] #outliers (p <= 0.1)
+  
+  return(outliers)
+
+}
+
+#sand
+outliers_sand_CTRL <- detect_outliers(DESIGN=DESIGN_sand, DAT_rare=DAT_sand_rare, Plastic="CTRL")
+outliers_sand_microplastic <- detect_outliers(DESIGN=DESIGN_sand, DAT_rare=DAT_sand_rare, Plastic="microplastic")
+outliers_sand_macroplastic <- detect_outliers(DESIGN=DESIGN_sand, DAT_rare=DAT_sand_rare, Plastic="macroplastic")
+outliers_sand_starch <- detect_outliers(DESIGN=DESIGN_sand, DAT_rare=DAT_sand_rare, Plastic="starch")
+
+#root_sand
+outliers_root_sand_CTRL <- detect_outliers(DESIGN=DESIGN_root_sand, DAT_rare=DAT_root_sand_rare, Plastic="CTRL")
+outliers_root_sand_microplastic <- detect_outliers(DESIGN=DESIGN_root_sand, DAT_rare=DAT_root_sand_rare, Plastic="microplastic")
+outliers_root_sand_macroplastic <- detect_outliers(DESIGN=DESIGN_root_sand, DAT_rare=DAT_root_sand_rare, Plastic="macroplastic")
+outliers_root_sand_starch <- detect_outliers(DESIGN=DESIGN_root_sand, DAT_rare=DAT_root_sand_rare, Plastic="starch")
+
+#root_soil
+outliers_root_soil_CTRL <- detect_outliers(DESIGN=DESIGN_root_soil, DAT_rare=DAT_root_soil_rare, Plastic="CTRL")
+outliers_root_soil_microplastic <- detect_outliers(DESIGN=DESIGN_root_soil, DAT_rare=DAT_root_soil_rare, Plastic="microplastic")
+outliers_root_soil_macroplastic <- detect_outliers(DESIGN=DESIGN_root_soil, DAT_rare=DAT_root_soil_rare, Plastic="macroplastic")
+outliers_root_soil_starch <- detect_outliers(DESIGN=DESIGN_root_soil, DAT_rare=DAT_root_soil_rare, Plastic="starch")
+
+#soil
+outliers_soil_CTRL <- detect_outliers(DESIGN=DESIGN_soil, DAT_rare=DAT_soil_rare, Plastic="CTRL")
+outliers_soil_microplastic <- detect_outliers(DESIGN=DESIGN_soil, DAT_rare=DAT_soil_rare, Plastic="microplastic")
+outliers_soil_macroplastic <- detect_outliers(DESIGN=DESIGN_soil, DAT_rare=DAT_soil_rare, Plastic="macroplastic")
+outliers_soil_starch <- detect_outliers(DESIGN=DESIGN_soil, DAT_rare=DAT_soil_rare, Plastic="starch")
+
+
+#output
+outliers <- data.frame(Plastic=c("CTRL","microplastic","macroplastic","starch"),
+                       Sand=c(length(outliers_sand_CTRL), length(outliers_sand_microplastic),length(outliers_sand_macroplastic), length(outliers_sand_starch)),
+                       Root_sand=c(length(outliers_root_sand_CTRL), length(outliers_root_sand_microplastic),length(outliers_root_sand_macroplastic), length(outliers_root_sand_starch)),
+                       Root_soil=c(length(outliers_root_soil_CTRL), length(outliers_root_soil_microplastic),length(outliers_root_soil_macroplastic), length(outliers_root_soil_starch)),
+                       Soil=c(length(outliers_soil_CTRL), length(outliers_soil_microplastic),length(outliers_soil_macroplastic), length(outliers_soil_starch)))
+
+
+pander(outliers, caption = "Number of outliers")
+
+```
+
+```{r outlier removal, warning=F, echo=F}
+
+#sand
+samples_to_remove_sand <- c(outliers_sand_CTRL, outliers_sand_microplastic, outliers_sand_macroplastic, outliers_sand_starch)
+
+DESIGN_sand <- DESIGN_sand[!(DESIGN_sand$AccessArray_barcode %in% samples_to_remove_sand),]
+DAT_sand <- DAT_sand[,!(colnames(DAT_sand) %in% samples_to_remove_sand)]
+ASVs_to_remove <- names(which(rowSums(DAT_sand) == 0))
+DAT_sand <- DAT_sand[!(rownames(DAT_sand) %in% ASVs_to_remove),]
+DAT_sand_rare <- DAT_sand_rare[,!(colnames(DAT_sand_rare) %in% samples_to_remove_sand)]
+ASVs_to_remove <- names(which(rowSums(DAT_sand_rare) == 0))
+DAT_sand_rare <- DAT_sand_rare[!(rownames(DAT_sand_rare) %in% ASVs_to_remove),]
+TAX_sand <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#root_sand
+samples_to_remove_root_sand <- c(outliers_root_sand_CTRL, outliers_root_sand_microplastic, outliers_root_sand_macroplastic, outliers_root_sand_starch)
+
+DESIGN_root_sand <- DESIGN_root_sand[!(DESIGN_root_sand$AccessArray_barcode %in% samples_to_remove_root_sand),]
+DAT_root_sand <- DAT_root_sand[,!(colnames(DAT_root_sand) %in% samples_to_remove_root_sand)]
+ASVs_to_remove <- names(which(rowSums(DAT_root_sand) == 0))
+DAT_root_sand <- DAT_root_sand[!(rownames(DAT_root_sand) %in% ASVs_to_remove),]
+DAT_root_sand_rare <- DAT_root_sand_rare[,!(colnames(DAT_root_sand_rare) %in% samples_to_remove_root_sand)]
+ASVs_to_remove <- names(which(rowSums(DAT_root_sand_rare) == 0))
+DAT_root_sand_rare <- DAT_root_sand_rare[!(rownames(DAT_root_sand_rare) %in% ASVs_to_remove),]
+TAX_root_sand <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#root_soil
+samples_to_remove_root_soil <- c(outliers_root_soil_CTRL, outliers_root_soil_microplastic, outliers_root_soil_macroplastic, outliers_root_soil_starch)
+
+DESIGN_root_soil <- DESIGN_root_soil[!(DESIGN_root_soil$AccessArray_barcode %in% samples_to_remove_root_soil),]
+DAT_root_soil <- DAT_root_soil[,!(colnames(DAT_root_soil) %in% samples_to_remove_root_soil)]
+ASVs_to_remove <- names(which(rowSums(DAT_root_soil) == 0))
+DAT_root_soil <- DAT_root_soil[!(rownames(DAT_root_soil) %in% ASVs_to_remove),]
+DAT_root_soil_rare <- DAT_root_soil_rare[,!(colnames(DAT_root_soil_rare) %in% samples_to_remove_root_soil)]
+ASVs_to_remove <- names(which(rowSums(DAT_root_soil_rare) == 0))
+DAT_root_soil_rare <- DAT_root_soil_rare[!(rownames(DAT_root_soil_rare) %in% ASVs_to_remove),]
+TAX_root_soil <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+#soil
+samples_to_remove_soil <- c(outliers_soil_CTRL, outliers_soil_microplastic, outliers_soil_macroplastic, outliers_soil_starch)
+
+DESIGN_soil <- DESIGN_soil[!(DESIGN_soil$AccessArray_barcode %in% samples_to_remove_soil),]
+DAT_soil <- DAT_soil[,!(colnames(DAT_soil) %in% samples_to_remove_soil)]
+ASVs_to_remove <- names(which(rowSums(DAT_soil) == 0))
+DAT_soil <- DAT_soil[!(rownames(DAT_soil) %in% ASVs_to_remove),]
+DAT_soil_rare <- DAT_soil_rare[,!(colnames(DAT_soil_rare) %in% samples_to_remove_soil)]
+ASVs_to_remove <- names(which(rowSums(DAT_soil_rare) == 0))
+DAT_soil_rare <- DAT_soil_rare[!(rownames(DAT_soil_rare) %in% ASVs_to_remove),]
+TAX_soil <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+
+#all
+samples_to_remove <- c(samples_to_remove_sand, samples_to_remove_root_sand, samples_to_remove_root_soil, samples_to_remove_soil)
+DESIGN <- DESIGN[!(DESIGN$AccessArray_barcode %in% samples_to_remove),]
+DAT <- DAT[,!(colnames(DAT) %in% samples_to_remove)]
+ASVs_to_remove <- names(which(rowSums(DAT) == 0))
+DAT <- DAT[!(rownames(DAT) %in% ASVs_to_remove),]
+DAT_rare <- DAT_rare[,!(colnames(DAT_rare) %in% samples_to_remove)]
+ASVs_to_remove <- names(which(rowSums(DAT_rare) == 0))
+DAT_rare <- DAT_rare[!(rownames(DAT_rare) %in% ASVs_to_remove),]
+TAX <- TAX[!(rownames(TAX) %in% ASVs_to_remove),]
+
+```
+
+## Sample Size
+
+We end up with the following number of samples per treatment for the analysis.  
+
+```{r sample size rare, warning=F, echo=F}
+
+#final number of samples
+table_sand <- table(DESIGN_sand$Treatment)
+table_root_sand <- table(DESIGN_root_sand$Treatment)
+table_root_soil <- table(DESIGN_root_soil$Treatment)
+table_soil <- table(DESIGN_soil$Treatment)
+
+#Concatenate
+sample_number <- data.frame(sand=table_sand, root_sand=table_root_sand, root_soil=table_root_soil, soil=table_soil)
+if(all(sample_number$sand.Var1 == sample_number$root.Var1)){
+  sample_number <- sample_number[c("sand.Var1","sand.Freq","root_sand.Freq","root_soil.Freq", "soil.Freq")]
+  names(sample_number) <- c("Sample", "Sand", "Root_sand", "Root_soil", "Soil")
+} else{"Check order"}
+
+#out
+pander(sample_number, caption = "Sample profile")
+
+#write.xlsx(btable, "btable.xlsx")
+#write.xlsx(ftable, "ftable.xlsx")
+
+```
+
+```{r export RDA files, echo=F, warning=F, message=F}
+
+# Export
+
+# create directory
+dir.create("interim")
+dir.create("interim/01_Import_Normalization")
+
+## set output directory
+setwd("interim/01_Import_Normalization")
+
+#save objects needed in the following scripts
+saveRDS(rare_threshold, "rare_threshold.RDS")
+
+saveRDS(DESIGN_sand, "DESIGN_sand.RDS")
+saveRDS(DAT_sand, "DAT_sand.RDS")
+saveRDS(TAX_sand, "TAX_sand.RDS")
+saveRDS(DAT_sand_rare, "DAT_sand_rare.RDS")
+
+saveRDS(DESIGN_root_sand, "DESIGN_root_sand.RDS")
+saveRDS(DAT_root_sand, "DAT_root_sand.RDS")
+saveRDS(TAX_root_sand, "TAX_root_sand.RDS")
+saveRDS(DAT_root_sand_rare, "DAT_root_sand_rare.RDS")
+
+saveRDS(DESIGN_root_soil, "DESIGN_root_soil.RDS")
+saveRDS(DAT_root_soil, "DAT_root_soil.RDS")
+saveRDS(TAX_root_soil, "TAX_root_soil.RDS")
+saveRDS(DAT_root_soil_rare, "DAT_root_soil_rare.RDS")
+
+saveRDS(DESIGN_soil, "DESIGN_soil.RDS")
+saveRDS(DAT_soil, "DAT_soil.RDS")
+saveRDS(TAX_soil, "TAX_soil.RDS")
+saveRDS(DAT_soil_rare, "DAT_soil_rare.RDS")
+
+saveRDS(DESIGN, "DESIGN.RDS")
+saveRDS(DAT, "DAT.RDS")
+saveRDS(TAX, "TAX.RDS")
+saveRDS(DAT_rare, "DAT_rare.RDS")
+
+saveRDS(level_cols_Plastic, "level_cols_Plastic.RDS")
+saveRDS(level_cols_Substrate, "level_cols_Substrate.RDS")
+saveRDS(TAX_level_cols_phyla, "TAX_level_cols_phyla.RDS")
+
+```
+
+\pagebreak

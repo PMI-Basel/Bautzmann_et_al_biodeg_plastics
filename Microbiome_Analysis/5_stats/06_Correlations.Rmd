@@ -1,0 +1,628 @@
+---
+title: "Microplastic - 06: Correlations"
+author: "Jan Waelchli"
+geometry: margin=2cm
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+---
+
+# Microbiome feedback
+
+We have measured multiple phenotypic plant traits (only measured for samples from sand and soil and not for roots). We do now correlate them to the microbial traits of alpha diversity, beta diversity (1st and 2nd PCoA axis) and abundances of the most common phyla. We do first plot a heatmap containing of the significant correlations and write on each field the corresponding correlation coefficient. Then we plot the single correlations.
+   
+```{r setup, include=FALSE, echo=F, warning=F, message=F,}
+
+##clear the object from memory
+rm(list=ls())
+
+#knitr settings
+knitr::opts_chunk$set(echo=TRUE, fig.align="center")
+options(tinytex.verbose = TRUE)
+
+#set seed
+set.seed(100)
+
+#paths
+paths <- list(functions="functions/")
+
+## set source
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path))
+
+## load functions
+source(paste0(paths$functions,"functions.R"))
+functions(path=paths$functions)
+
+## installs (if necessary) and loads libraries
+libraries()
+library(Hmisc)
+library(ggcorrplot)
+library(data.table) #faster than aggregate
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+
+
+```
+
+```{r paths, echo=F, message=F, warning=F}
+
+# Import
+
+#set wd to RDS files
+setwd("interim/01_Import_Normalization")
+
+#Import RDS files
+DESIGN <- readRDS("DESIGN.RDS")
+DESIGN_sand <- readRDS("DESIGN_sand.RDS")
+DESIGN_root_sand <- readRDS("DESIGN_root_sand.RDS")
+DESIGN_root_soil <- readRDS("DESIGN_root_soil.RDS")
+DESIGN_soil <- readRDS("DESIGN_soil.RDS")
+
+level_cols_Plastic <- readRDS("level_cols_Plastic.RDS")
+level_cols_Substrate <- readRDS("level_cols_Substrate.RDS")
+TAX_level_cols_phyla <- readRDS("TAX_level_cols_phyla.RDS")
+
+PHYSEQ_phyla_melt <- readRDS("../02_Taxa_Analysis/PHYSEQ_phyla_melt.RDS")
+PHYSEQ_melt <- psmelt(readRDS("../02_Taxa_Analysis/PHYSEQ.RDS")) #melt PHYSEQ to data.frame
+
+
+alpha_diversity_DAT_summary <- readRDS("../03_Alpha_Diversity/alpha_diversity_DAT_summary.RDS")
+
+beta_diversity_sand <- readRDS("../04_Beta_Diversity/beta_sand_plant.RDS")
+beta_diversity_sand_microplastic <- readRDS("../04_Beta_Diversity/beta_sand_plant_microplastic.RDS")
+beta_diversity_sand_macroplastic <- readRDS("../04_Beta_Diversity/beta_sand_plant_macroplastic.RDS")
+beta_diversity_sand_starch <- readRDS("../04_Beta_Diversity/beta_sand_plant_starch.RDS")
+beta_diversity_root_sand <- readRDS("../04_Beta_Diversity/beta_root_sand_plant.RDS")
+beta_diversity_root_sand_microplastic <- readRDS("../04_Beta_Diversity/beta_root_sand_plant_microplastic.RDS")
+beta_diversity_root_sand_macroplastic <- readRDS("../04_Beta_Diversity/beta_root_sand_plant_macroplastic.RDS")
+beta_diversity_root_sand_starch <- readRDS("../04_Beta_Diversity/beta_root_sand_plant_starch.RDS")
+beta_diversity_root_soil <- readRDS("../04_Beta_Diversity/beta_root_soil_plant.RDS")
+beta_diversity_root_soil_microplastic <- readRDS("../04_Beta_Diversity/beta_root_soil_plant_microplastic.RDS")
+beta_diversity_root_soil_macroplastic <- readRDS("../04_Beta_Diversity/beta_root_soil_plant_macroplastic.RDS")
+beta_diversity_root_soil_starch <- readRDS("../04_Beta_Diversity/beta_root_soil_plant_starch.RDS")
+beta_diversity_soil <- readRDS("../04_Beta_Diversity/beta_soil_plant.RDS")
+beta_diversity_soil_microplastic <- readRDS("../04_Beta_Diversity/beta_soil_plant_microplastic.RDS")
+beta_diversity_soil_macroplastic <- readRDS("../04_Beta_Diversity/beta_soil_plant_macroplastic.RDS")
+beta_diversity_soil_starch <- readRDS("../04_Beta_Diversity/beta_soil_plant_starch.RDS")
+
+#tree
+phylotree_sand <- readRDS("../05_DAA/phylotree_sand.RDS")
+phylotree_root_sand <- readRDS("../05_DAA/phylotree_root_sand.RDS")
+phylotree_root_soil <- readRDS("../05_DAA/phylotree_root_soil.RDS")
+phylotree_soil <- readRDS("../05_DAA/phylotree_soil.RDS")
+
+##Phenotype file
+phenotype <- read_xlsx("../../../5th maize experiment.xlsx", sheet = "Table 5th experiment") %>% as.data.frame()
+
+#tree files
+tree_sand <- read.tree("../../../03_build_tree/sand/sequences_sand_aligned.fasta.treefile")
+tree_root_sand <- read.tree("../../../03_build_tree/root_sand/sequences_root_sand_aligned.fasta.treefile")
+tree_root_soil <- read.tree("../../../03_build_tree/root_soil/sequences_root_soil_aligned.fasta.treefile")
+tree_soil <- read.tree("../../../03_build_tree/soil/sequences_soil_aligned.fasta.treefile")
+
+```
+
+## Correlations in sand
+
+```{r sand: subset, echo=F, message=F, warning=F}
+
+#subset datasets (was only measured for sand and soil)
+phenotype[,8:16] <- sapply(phenotype[,8:16], as.numeric)
+colnames(phenotype) <- gsub(" ", "", colnames(phenotype))
+phenotype$SampleID <- gsub(" ", "", phenotype$SampleID)
+
+#mean from SPAD
+phenotype <- add_column(phenotype, SPAD_means=rowMeans(data.frame(phenotype$SPAD1stleaf, phenotype$SPAD2ndleaf)), .before=15)
+
+#sand
+
+#subset only cols which will be used in data_sand and alpha div
+data_sand <- phenotype[phenotype$SampleID %in% DESIGN_sand$SampleID, c(7,9,10,12:15)] %>% na.omit() #subset phenotype to samples which where used for microbiome
+alpha_div_sand <- alpha_diversity_DAT_summary[alpha_diversity_DAT_summary$SampleID %in% phenotype$SampleID,] #subset alpha div
+rownames(alpha_div_sand) <- alpha_div_sand$SampleID #add rownames for ordering
+
+#add cols from alpha div file (use data_sand order)
+data_sand <- add_column(data_sand, Plastic=alpha_div_sand[data_sand$SampleID,colnames(alpha_div_sand) == "Plastic"], .before = 2)
+data_sand <- add_column(data_sand, AccessArray_barcode=alpha_div_sand[data_sand$SampleID,colnames(alpha_div_sand) == "AccessArray_barcode"], .before = 2)
+data_sand <- add_column(data_sand, Concentration=alpha_div_sand[data_sand$SampleID,colnames(alpha_div_sand) == "Concentration"], .before = 4)
+data_sand <- add_column(data_sand, alpha_div=alpha_div_sand[data_sand$SampleID,colnames(alpha_div_sand) == "asv_diversity"])
+
+#subset only cols which will be used in beta div
+beta_div_sand <- beta_diversity_sand[beta_diversity_sand$AccessArray_barcode %in% data_sand$AccessArray_barcode,] #subset beta div
+rownames(beta_div_sand) <- beta_div_sand$AccessArray_barcode #add rownames for ordering
+
+#add cols from beta div file (use data_sand order)
+data_sand <- add_column(data_sand, beta_div_axis1=beta_div_sand[data_sand$AccessArray_barcode,colnames(beta_div_sand) == "Axis.1"])
+data_sand <- add_column(data_sand, beta_div_axis2=beta_div_sand[data_sand$AccessArray_barcode,colnames(beta_div_sand) == "Axis.2"])
+
+
+#aggregate and subset abundance of different phyla
+abu <-  aggregate(PHYSEQ_phyla_melt,by = list(PHYSEQ_phyla_melt$labels_2, PHYSEQ_phyla_melt$SampleID),FUN = mean) %>% dplyr::select(Group.1, Group.2, Abundance)
+colnames(abu) <- c("abu", "SampleID", "Abundance")
+abu <- pivot_wider(abu, id_cols = SampleID, names_from = "abu", values_from = c(Abundance))
+rownames(abu) <- abu$SampleID
+abu_sand <- abu[abu$SampleID %in% data_sand$SampleID,] #subset abu
+rownames(abu_sand) <- abu_sand$SampleID #add rownames for ordering
+abu_sand <- abu_sand[data_sand$SampleID,]#sort
+
+
+#normalise each row to 100% total abundance
+abu_fun <- function(x) 100 * x/sum(x)
+normed <- apply(abu_sand[,2:ncol(abu_sand)], 1, abu_fun) %>% t()
+abu_sand <- cbind(abu_sand[1], normed) #add samples col again
+
+#add cols from abu file (use data_sand order)
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Gammaproteobacteria"])
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Alphaproteobacteria"])
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Bacteroidetes"])
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Firmicutes"])
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Actinobacteria"])
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Low abundant phyla"])
+data_sand <- add_column(data_sand, abu_sand[,colnames(abu_sand) == "Deltaproteobacteria"])
+
+```
+
+```{r sand: subset for ASV, echo=F, message=F, warning=F}
+
+#ASV abundance
+
+#select for high abundant ASVs
+high_abu_ASV_sand <- tree_sand[["tip.label"]]
+PHYSEQ_melt_sand <- PHYSEQ_melt[PHYSEQ_melt$OTU %in% high_abu_ASV_sand,]
+
+#aggregate ASV abundance (takes a while)
+PHYSEQ_melt_sand_t <- data.table(PHYSEQ_melt_sand)
+abu_ASV_sand = PHYSEQ_melt_sand_t[,list(Abundance = mean(Abundance)), by = 'OTU,SampleID'] #faster than aggregate
+abu_ASV_sand <- pivot_wider(abu_ASV_sand, id_cols = SampleID, names_from = "OTU", values_from = c(Abundance))
+rownames(abu_ASV_sand) <- abu_ASV_sand$SampleID #add rownames for ordering
+abu_ASV_sand <- abu_ASV_sand[data_sand$SampleID,]#sort
+
+#normalise each row to 100% total abundance
+abu_fun <- function(x) 100 * x/sum(x)
+normed <- apply(abu_ASV_sand[,2:ncol(abu_ASV_sand)], 1, abu_fun) %>% t()
+abu_ASV_sand <- cbind(abu_ASV_sand[1], normed) #add samples col again
+
+#combine phenotypic traits and ASVs in one df (needed for correlations)
+data_sand_ASV <- cbind(data_sand[,1:10], abu_ASV_sand[2:ncol(abu_ASV_sand)])
+
+```
+
+```{r sand microplastic heatmap, echo=F, message=F, warning=F}
+
+#microplastic heatmap
+data_sand_microplastic <- data_sand[data_sand$Plastic %in% c("CTRL", "microplastic"),]
+data_sand_microplastic$Concentration <- as.double(data_sand_microplastic$Concentration)
+colnames(data_sand_microplastic) <- gsub("abu_sand[, colnames(abu_sand) == \"", "", colnames(data_sand_microplastic), fixed=T)
+colnames(data_sand_microplastic) <- gsub("\"]", "", colnames(data_sand_microplastic), fixed=T)
+
+
+cor_sand_microplastic <- Hmisc::rcorr(as.matrix(data_sand_microplastic[,4:ncol(data_sand_microplastic)]))
+cor_sand_microplastic$P[is.na(cor_sand_microplastic$P)] <- 1 #subset NA
+
+ggcorrplot(cor_sand_microplastic$r[1:7,seq(17,8, by=-1)], lab = T, p.mat=cor_sand_microplastic$P[1:7,seq(17,8, by=-1)], insig = "blank", lab_size = 2)+
+  ggtitle("Sand: Microplastic")
+
+```
+
+```{r sand microplastic cor plot, echo=F, message=F, warning=F, fig.height=12, fig.width=12}
+
+#correlation plot
+phenotype_features <- colnames(data_sand_microplastic)[4:10]
+microbiome_features <- colnames(data_sand_microplastic)[c(4,11:ncol(data_sand_microplastic))]
+
+data_sand_microplastic_long <- pivot_longer(data_sand_microplastic, phenotype_features, names_to = "phenotype", values_to = "phenotype_values")
+data_sand_microplastic_long <- pivot_longer(data_sand_microplastic_long, !(c(SampleID, AccessArray_barcode, Plastic, phenotype, phenotype_values)), names_to = "microbiome", values_to = "microbiome_values")
+data_sand_microplastic_long$phenotype <- factor(data_sand_microplastic_long$phenotype, levels = phenotype_features)
+data_sand_microplastic_long$microbiome <- factor(data_sand_microplastic_long$microbiome, levels = microbiome_features)
+
+#get pvalues from above
+p <- cor_sand_microplastic$P 
+#transform p vals to long format
+data_sand_microplastic_long$p <- NA
+data_sand_microplastic_long$sig <- NA
+for (i in 1:nrow(data_sand_microplastic_long)) {
+  pheno <- data_sand_microplastic_long$phenotype[i]
+  microb <- data_sand_microplastic_long$microbiome[i]
+  pval <- p[rownames(p)==pheno, colnames(p)==microb]
+  sig <- pval < 0.05
+  data_sand_microplastic_long$p[i] <- pval
+  data_sand_microplastic_long$sig[i] <- sig
+}
+
+ggplot(data_sand_microplastic_long, aes(phenotype_values, microbiome_values))+
+  geom_point(aes( fill=Plastic, alpha=sig), pch=21)+
+  geom_smooth(se=F, method="lm", aes(color=sig, alpha=sig), formula=y~x)+
+  scale_color_manual(values=c("dimgrey", "red"))+
+  scale_fill_manual(values=c(level_cols_Plastic[c(1,3)]))+
+  scale_alpha_discrete(range = c(0.35, 1))+
+  facet_grid(microbiome~phenotype, scales = "free")+
+  theme_bw()+
+  theme(strip.text.x = element_text(size = 5), strip.text.y = element_text(size = 5))+
+  guides(alpha = F)+
+  ggtitle("Sand: Microplastic")
+
+```
+
+\pagebreak
+
+We now correlate the phenotypic measurements and plastic correlations against the abundance of each ASV and plot the correlations around the phylogenetic tree.
+
+```{r function treeplots: show taxa tree, echo=F, message=F, warning=F}
+
+plot_tree <- function(phylotree, cor_data, phenotraits, title="", subtitle=""){
+  
+  #subset to only have cors between phenotypes and ASVs
+  r <- cor_data[["r"]]
+  P <- cor_data[["P"]]
+  
+  #basic tree plot from 05_DAA
+  phylum <- phylotree[["phylum"]]
+  p1 <- phylotree[["plot"]]
+  
+  #add for each trait a new ring
+  for (trait in phenotraits) {
+    #df ring
+    df <-data.frame(r=t(r[rownames(r) == trait,,drop=F]), p=t(P[rownames(P) == trait,,drop=F]))
+    colnames(df) <- c("r", "p")
+    df <- df[match(p1[["data"]][["label"]], rownames(df)),] #sort df by tree order
+    df$ASV <- rownames(df)
+    df$sign <- "no correlation"
+    df$sign[df$p <= 0.05 & df$r <= 0] <- "negative correlation"
+    df$sign[df$p <= 0.05 & df$r >= 0] <- "positive correlation"
+    df$sign <- factor(df$sign, levels=c("positive correlation","no correlation","negative correlation"))
+    
+    #add ring
+    p1 <- p1 + geom_fruit(data=df, geom=geom_bar,
+                mapping=aes(x=r, y=ASV, fill=sign),
+                pwidth=0.2,
+                orientation="y",
+                stat="identity",
+                offset=0.3,
+                axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+                grid.params=list()) +
+                scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))+
+                ggtitle(title, subtitle=subtitle)
+  }
+  
+  #return plot
+  return(p1)
+}
+
+```
+
+```{r sand microplastic ASV correlations, echo=F, message=F, warning=F}
+
+#get phylum for sand
+phylum <- phylotree_sand[["phylum"]]
+
+#microplastic correlations
+data_sand_ASV_microplastic <- data_sand_ASV[data_sand_ASV$Plastic %in% c("CTRL", "microplastic"),]
+cor_sand_ASV_microplastic <- Hmisc::rcorr(as.matrix(data_sand_ASV_microplastic[,4:ncol(data_sand_ASV_microplastic)]))
+cor_sand_ASV_microplastic$P[is.na(cor_sand_ASV_microplastic$P)] <- 1 #subset NA
+
+#subset to only have cors between phenotypes and ASVs
+r <- cor_sand_ASV_microplastic$r[1:7,8:ncol(cor_sand_ASV_microplastic$r)]
+n <- cor_sand_ASV_microplastic$n[1:7,8:ncol(cor_sand_ASV_microplastic$n)]
+P <- cor_sand_ASV_microplastic$P[1:7,8:ncol(cor_sand_ASV_microplastic$P)]
+cor_sand_ASV_microplastic <- list(r=r, n=n, P=P)
+
+#plots
+title <- "Sand: microplastic"
+subtitle <- "Inner circle: Total plant fresh weight [g]\nMiddle circle: Shoot fresh weight [g]\nOuter circle: Root fresh weight [g]"
+plot_tree(phylotree_sand, cor_sand_ASV_microplastic, c("TotalPlantFreshWeight[g]", "ShootFreshWeight[g]", "RootFreshWeight[g]"), title, subtitle)
+
+title <- "Sand: microplastic"
+subtitle <- "Inner circle: Shoot length [cm]\nMiddle Circle: Root length [cm]\nOuter circle: SPAD"
+plot_tree(phylotree_sand, cor_sand_ASV_microplastic, c("ShootLength[cm]", "RootLength[cm]", "SPAD_means"), title, subtitle)
+
+```
+
+```{r sand macroplastic ASV correlations, echo=F, message=F, warning=F}
+
+#macroplastic correlations
+data_sand_ASV_macroplastic <- data_sand_ASV[data_sand_ASV$Plastic %in% c("CTRL", "macroplastic"),]
+cor_sand_ASV_macroplastic <- Hmisc::rcorr(as.matrix(data_sand_ASV_macroplastic[,4:ncol(data_sand_ASV_macroplastic)]))
+cor_sand_ASV_macroplastic$P[is.na(cor_sand_ASV_macroplastic$P)] <- 1 #subset NA
+
+#subset to only have cors between phenotypes and ASVs
+r <- cor_sand_ASV_macroplastic$r[1:7,8:ncol(cor_sand_ASV_macroplastic$r)]
+n <- cor_sand_ASV_macroplastic$n[1:7,8:ncol(cor_sand_ASV_macroplastic$n)]
+P <- cor_sand_ASV_macroplastic$P[1:7,8:ncol(cor_sand_ASV_macroplastic$P)]
+cor_sand_ASV_macroplastic <- list(r=r, n=n, P=P)
+
+#plots
+title <- "Sand: macroplastic"
+subtitle <- "Inner circle: Total plant fresh weight [g]\nMiddle circle: Shoot fresh weight [g]\nOuter circle: Root fresh weight [g]"
+plot_tree(phylotree_sand, cor_sand_ASV_macroplastic, c("TotalPlantFreshWeight[g]", "ShootFreshWeight[g]", "RootFreshWeight[g]"), title, subtitle)
+
+title <- "Sand: macroplastic"
+subtitle <- "Inner circle: Shoot length [cm]\nMiddle Circle: Root length [cm]\nOuter circle: SPAD"
+plot_tree(phylotree_sand, cor_sand_ASV_macroplastic, c("ShootLength[cm]", "RootLength[cm]", "SPAD_means"), title, subtitle)
+
+```
+
+```{r sand starch ASV correlations, echo=F, message=F, warning=F}
+
+#starch correlations
+data_sand_ASV_starch <- data_sand_ASV[data_sand_ASV$Plastic %in% c("CTRL", "starch"),]
+cor_sand_ASV_starch <- Hmisc::rcorr(as.matrix(data_sand_ASV_starch[,4:ncol(data_sand_ASV_starch)]))
+cor_sand_ASV_starch$P[is.na(cor_sand_ASV_starch$P)] <- 1 #subset NA
+
+#subset to only have cors between phenotypes and ASVs
+r <- cor_sand_ASV_starch$r[1:7,8:ncol(cor_sand_ASV_starch$r)]
+n <- cor_sand_ASV_starch$n[1:7,8:ncol(cor_sand_ASV_starch$n)]
+P <- cor_sand_ASV_starch$P[1:7,8:ncol(cor_sand_ASV_starch$P)]
+cor_sand_ASV_starch <- list(r=r, n=n, P=P)
+
+#plots
+title <- "Sand: starch"
+subtitle <- "Inner circle: Total plant fresh weight [g]\nMiddle circle: Shoot fresh weight [g]\nOuter circle: Root fresh weight [g]"
+plot_tree(phylotree_sand, cor_sand_ASV_starch, c("TotalPlantFreshWeight[g]", "ShootFreshWeight[g]", "RootFreshWeight[g]"), title, subtitle)
+
+title <- "Sand: starch"
+subtitle <- "Inner circle: Shoot length [cm]\nMiddle Circle: Root length [cm]\nOuter circle: SPAD"
+plot_tree(phylotree_sand, cor_sand_ASV_starch, c("ShootLength[cm]", "RootLength[cm]", "SPAD_means"), title, subtitle)
+
+```
+
+```{r sand concentrations ASV correlations, echo=F, message=F, warning=F}
+
+#bind concentrations from all plastics
+r_conc <- rbind(cor_sand_ASV_microplastic[["r"]][1,], cor_sand_ASV_macroplastic[["r"]][1,], cor_sand_ASV_starch[["r"]][1,])
+rownames(r_conc) <- c("microplastic", "macroplastic", "starch")
+P_conc <- rbind(cor_sand_ASV_microplastic[["P"]][1,], cor_sand_ASV_macroplastic[["P"]][1,], cor_sand_ASV_starch[["P"]][1,])
+rownames(P_conc) <- c("microplastic", "macroplastic", "starch")
+cor_conc <- list(r=r_conc, P=P_conc)
+
+
+title <- "Sand: Plastic concentrations"
+subtitle <- "Inner circle: Microplastic\nMiddle Circle: Macroplastic\nOuter circle: Starch"
+plot_tree(phylotree_sand, cor_conc, c("microplastic", "macroplastic", "starch"), title, subtitle)
+
+```
+
+\pagebreak
+
+## Correlations in soil
+
+```{r soil: subset, echo=F, message=F, warning=F}
+
+#subset datasets (was only measured for soil and soil)
+phenotype[,8:16] <- sapply(phenotype[,8:16], as.numeric)
+colnames(phenotype) <- gsub(" ", "", colnames(phenotype))
+phenotype$SampleID <- gsub(" ", "", phenotype$SampleID)
+
+#mean from SPAD
+phenotype <- add_column(phenotype, SPAD_means=rowMeans(data.frame(phenotype$SPAD1stleaf, phenotype$SPAD2ndleaf)), .before=15)
+
+#soil
+
+#subset only cols which will be used in data_soil and alpha div
+data_soil <- phenotype[phenotype$SampleID %in% DESIGN_soil$SampleID, c(7,9,10,12:15)] %>% na.omit() #subset phenotype to samples which where used for microbiome
+alpha_div_soil <- alpha_diversity_DAT_summary[alpha_diversity_DAT_summary$SampleID %in% phenotype$SampleID,] #subset alpha div
+rownames(alpha_div_soil) <- alpha_div_soil$SampleID #add rownames for ordering
+
+#add cols from alpha div file (use data_soil order)
+data_soil <- add_column(data_soil, Plastic=alpha_div_soil[data_soil$SampleID,colnames(alpha_div_soil) == "Plastic"], .before = 2)
+data_soil <- add_column(data_soil, AccessArray_barcode=alpha_div_soil[data_soil$SampleID,colnames(alpha_div_soil) == "AccessArray_barcode"], .before = 2)
+data_soil <- add_column(data_soil, Concentration=alpha_div_soil[data_soil$SampleID,colnames(alpha_div_soil) == "Concentration"], .before = 4)
+data_soil <- add_column(data_soil, alpha_div=alpha_div_soil[data_soil$SampleID,colnames(alpha_div_soil) == "asv_diversity"])
+
+#subset only cols which will be used in beta div
+beta_div_soil <- beta_diversity_soil[beta_diversity_soil$AccessArray_barcode %in% data_soil$AccessArray_barcode,] #subset beta div
+rownames(beta_div_soil) <- beta_div_soil$AccessArray_barcode #add rownames for ordering
+
+#add cols from beta div file (use data_soil order)
+data_soil <- add_column(data_soil, beta_div_axis1=beta_div_soil[data_soil$AccessArray_barcode,colnames(beta_div_soil) == "Axis.1"])
+data_soil <- add_column(data_soil, beta_div_axis2=beta_div_soil[data_soil$AccessArray_barcode,colnames(beta_div_soil) == "Axis.2"])
+
+
+#aggregate and subset abundance of different phyla
+abu <-  aggregate(PHYSEQ_phyla_melt,by = list(PHYSEQ_phyla_melt$labels_2, PHYSEQ_phyla_melt$SampleID),FUN = mean) %>% dplyr::select(Group.1, Group.2, Abundance)
+colnames(abu) <- c("abu", "SampleID", "Abundance")
+abu <- pivot_wider(abu, id_cols = SampleID, names_from = "abu", values_from = c(Abundance))
+rownames(abu) <- abu$SampleID
+abu_soil <- abu[abu$SampleID %in% data_soil$SampleID,] #subset abu
+rownames(abu_soil) <- abu_soil$SampleID #add rownames for ordering
+abu_soil <- abu_soil[data_soil$SampleID,]#sort
+
+
+#normalise each row to 100% total abundance
+abu_fun <- function(x) 100 * x/sum(x)
+normed <- apply(abu_soil[,2:ncol(abu_soil)], 1, abu_fun) %>% t()
+abu_soil <- cbind(abu_soil[1], normed) #add samples col again
+
+#add cols from abu file (use data_soil order)
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Gammaproteobacteria"])
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Alphaproteobacteria"])
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Bacteroidetes"])
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Firmicutes"])
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Actinobacteria"])
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Low abundant phyla"])
+data_soil <- add_column(data_soil, abu_soil[,colnames(abu_soil) == "Deltaproteobacteria"])
+
+```
+
+```{r soil: subset for ASV, echo=F, message=F, warning=F}
+
+#ASV abundance
+
+#select for high abundant ASVs
+high_abu_ASV_soil <- tree_soil[["tip.label"]]
+PHYSEQ_melt_soil <- PHYSEQ_melt[PHYSEQ_melt$OTU %in% high_abu_ASV_soil,]
+
+#aggregate ASV abundance (takes a while)
+PHYSEQ_melt_soil_t <- data.table(PHYSEQ_melt_soil)
+abu_ASV_soil = PHYSEQ_melt_soil_t[,list(Abundance = mean(Abundance)), by = 'OTU,SampleID'] #faster than aggregate
+abu_ASV_soil <- pivot_wider(abu_ASV_soil, id_cols = SampleID, names_from = "OTU", values_from = c(Abundance))
+rownames(abu_ASV_soil) <- abu_ASV_soil$SampleID #add rownames for ordering
+abu_ASV_soil <- abu_ASV_soil[data_soil$SampleID,]#sort
+
+#normalise each row to 100% total abundance
+abu_fun <- function(x) 100 * x/sum(x)
+normed <- apply(abu_ASV_soil[,2:ncol(abu_ASV_soil)], 1, abu_fun) %>% t()
+abu_ASV_soil <- cbind(abu_ASV_soil[1], normed) #add samples col again
+
+#combine phenotypic traits and ASVs in one df (needed for correlations)
+data_soil_ASV <- cbind(data_soil[,1:10], abu_ASV_soil[2:ncol(abu_ASV_soil)])
+
+```
+
+```{r soil microplastic heatmap, echo=F, message=F, warning=F}
+
+#microplastic heatmap
+data_soil_microplastic <- data_soil[data_soil$Plastic %in% c("CTRL", "microplastic"),]
+data_soil_microplastic$Concentration <- as.double(data_soil_microplastic$Concentration)
+colnames(data_soil_microplastic) <- gsub("abu_soil[, colnames(abu_soil) == \"", "", colnames(data_soil_microplastic), fixed=T)
+colnames(data_soil_microplastic) <- gsub("\"]", "", colnames(data_soil_microplastic), fixed=T)
+
+
+cor_soil_microplastic <- Hmisc::rcorr(as.matrix(data_soil_microplastic[,4:ncol(data_soil_microplastic)]))
+cor_soil_microplastic$P[is.na(cor_soil_microplastic$P)] <- 1 #subset NA
+
+ggcorrplot(cor_soil_microplastic$r[1:7,seq(17,8, by=-1)], lab = T, p.mat=cor_soil_microplastic$P[1:7,seq(17,8, by=-1)], insig = "blank", lab_size = 2)+
+  ggtitle("soil: Microplastic")
+
+```
+
+```{r soil microplastic cor plot, echo=F, message=F, warning=F, fig.height=12, fig.width=12}
+
+#correlation plot
+phenotype_features <- colnames(data_soil_microplastic)[4:10]
+microbiome_features <- colnames(data_soil_microplastic)[c(4,11:ncol(data_soil_microplastic))]
+
+data_soil_microplastic_long <- pivot_longer(data_soil_microplastic, phenotype_features, names_to = "phenotype", values_to = "phenotype_values")
+data_soil_microplastic_long <- pivot_longer(data_soil_microplastic_long, !(c(SampleID, AccessArray_barcode, Plastic, phenotype, phenotype_values)), names_to = "microbiome", values_to = "microbiome_values")
+data_soil_microplastic_long$phenotype <- factor(data_soil_microplastic_long$phenotype, levels = phenotype_features)
+data_soil_microplastic_long$microbiome <- factor(data_soil_microplastic_long$microbiome, levels = microbiome_features)
+
+#get pvalues from above
+p <- cor_soil_microplastic$P 
+#transform p vals to long format
+data_soil_microplastic_long$p <- NA
+data_soil_microplastic_long$sig <- NA
+for (i in 1:nrow(data_soil_microplastic_long)) {
+  pheno <- data_soil_microplastic_long$phenotype[i]
+  microb <- data_soil_microplastic_long$microbiome[i]
+  pval <- p[rownames(p)==pheno, colnames(p)==microb]
+  sig <- pval < 0.05
+  data_soil_microplastic_long$p[i] <- pval
+  data_soil_microplastic_long$sig[i] <- sig
+}
+
+ggplot(data_soil_microplastic_long, aes(phenotype_values, microbiome_values))+
+  geom_point(aes( fill=Plastic, alpha=sig), pch=21)+
+  geom_smooth(se=F, method="lm", aes(color=sig, alpha=sig), formula=y~x)+
+  scale_color_manual(values=c("dimgrey", "red"))+
+  scale_fill_manual(values=c(level_cols_Plastic[c(1,3)]))+
+  scale_alpha_discrete(range = c(0.35, 1))+
+  facet_grid(microbiome~phenotype, scales = "free")+
+  theme_bw()+
+  theme(strip.text.x = element_text(size = 5), strip.text.y = element_text(size = 5))+
+  guides(alpha = F)+
+  ggtitle("soil: Microplastic")
+
+```
+
+\pagebreak
+
+We now correlate the phenotypic measurements and plastic correlations against the abundance of each ASV and plot the correlations around the phylogenetic tree.
+
+```{r soil microplastic ASV correlations, echo=F, message=F, warning=F}
+
+#get phylum for soil
+phylum <- phylotree_soil[["phylum"]]
+
+#microplastic correlations
+data_soil_ASV_microplastic <- data_soil_ASV[data_soil_ASV$Plastic %in% c("CTRL", "microplastic"),]
+cor_soil_ASV_microplastic <- Hmisc::rcorr(as.matrix(data_soil_ASV_microplastic[,4:ncol(data_soil_ASV_microplastic)]))
+cor_soil_ASV_microplastic$P[is.na(cor_soil_ASV_microplastic$P)] <- 1 #subset NA
+
+#subset to only have cors between phenotypes and ASVs
+r <- cor_soil_ASV_microplastic$r[1:7,8:ncol(cor_soil_ASV_microplastic$r)]
+n <- cor_soil_ASV_microplastic$n[1:7,8:ncol(cor_soil_ASV_microplastic$n)]
+P <- cor_soil_ASV_microplastic$P[1:7,8:ncol(cor_soil_ASV_microplastic$P)]
+cor_soil_ASV_microplastic <- list(r=r, n=n, P=P)
+
+#plots
+title <- "soil: microplastic"
+subtitle <- "Inner circle: Total plant fresh weight [g]\nMiddle circle: Shoot fresh weight [g]\nOuter circle: Root fresh weight [g]"
+plot_tree(phylotree_soil, cor_soil_ASV_microplastic, c("TotalPlantFreshWeight[g]", "ShootFreshWeight[g]", "RootFreshWeight[g]"), title, subtitle)
+
+title <- "soil: microplastic"
+subtitle <- "Inner circle: Shoot length [cm]\nMiddle Circle: Root length [cm]\nOuter circle: SPAD"
+plot_tree(phylotree_soil, cor_soil_ASV_microplastic, c("ShootLength[cm]", "RootLength[cm]", "SPAD_means.1"), title, subtitle)
+
+```
+
+```{r soil macroplastic ASV correlations, echo=F, message=F, warning=F}
+
+#macroplastic correlations
+data_soil_ASV_macroplastic <- data_soil_ASV[data_soil_ASV$Plastic %in% c("CTRL", "macroplastic"),]
+cor_soil_ASV_macroplastic <- Hmisc::rcorr(as.matrix(data_soil_ASV_macroplastic[,4:ncol(data_soil_ASV_macroplastic)]))
+cor_soil_ASV_macroplastic$P[is.na(cor_soil_ASV_macroplastic$P)] <- 1 #subset NA
+
+#subset to only have cors between phenotypes and ASVs
+r <- cor_soil_ASV_macroplastic$r[1:7,8:ncol(cor_soil_ASV_macroplastic$r)]
+n <- cor_soil_ASV_macroplastic$n[1:7,8:ncol(cor_soil_ASV_macroplastic$n)]
+P <- cor_soil_ASV_macroplastic$P[1:7,8:ncol(cor_soil_ASV_macroplastic$P)]
+cor_soil_ASV_macroplastic <- list(r=r, n=n, P=P)
+
+#plots
+title <- "soil: macroplastic"
+subtitle <- "Inner circle: Total plant fresh weight [g]\nMiddle circle: Shoot fresh weight [g]\nOuter circle: Root fresh weight [g]"
+plot_tree(phylotree_soil, cor_soil_ASV_macroplastic, c("TotalPlantFreshWeight[g]", "ShootFreshWeight[g]", "RootFreshWeight[g]"), title, subtitle)
+
+title <- "soil: macroplastic"
+subtitle <- "Inner circle: Shoot length [cm]\nMiddle Circle: Root length [cm]\nOuter circle: SPAD"
+plot_tree(phylotree_soil, cor_soil_ASV_macroplastic, c("ShootLength[cm]", "RootLength[cm]", "SPAD_means.1"), title, subtitle)
+
+```
+
+```{r soil starch ASV correlations, echo=F, message=F, warning=F}
+
+#starch correlations
+data_soil_ASV_starch <- data_soil_ASV[data_soil_ASV$Plastic %in% c("CTRL", "starch"),]
+cor_soil_ASV_starch <- Hmisc::rcorr(as.matrix(data_soil_ASV_starch[,4:ncol(data_soil_ASV_starch)]))
+cor_soil_ASV_starch$P[is.na(cor_soil_ASV_starch$P)] <- 1 #subset NA
+
+#subset to only have cors between phenotypes and ASVs
+r <- cor_soil_ASV_starch$r[1:7,8:ncol(cor_soil_ASV_starch$r)]
+n <- cor_soil_ASV_starch$n[1:7,8:ncol(cor_soil_ASV_starch$n)]
+P <- cor_soil_ASV_starch$P[1:7,8:ncol(cor_soil_ASV_starch$P)]
+cor_soil_ASV_starch <- list(r=r, n=n, P=P)
+
+#plots
+title <- "soil: starch"
+subtitle <- "Inner circle: Total plant fresh weight [g]\nMiddle circle: Shoot fresh weight [g]\nOuter circle: Root fresh weight [g]"
+plot_tree(phylotree_soil, cor_soil_ASV_starch, c("TotalPlantFreshWeight[g]", "ShootFreshWeight[g]", "RootFreshWeight[g]"), title, subtitle)
+
+title <- "soil: starch"
+subtitle <- "Inner circle: Shoot length [cm]\nMiddle Circle: Root length [cm]\nOuter circle: SPAD"
+plot_tree(phylotree_soil, cor_soil_ASV_starch, c("ShootLength[cm]", "RootLength[cm]", "SPAD_means.1"), title, subtitle)
+
+```
+
+```{r soil concentrations ASV correlations, echo=F, message=F, warning=F}
+
+#bind concentrations from all plastics
+r_conc <- rbind(cor_soil_ASV_microplastic[["r"]][1,], cor_soil_ASV_macroplastic[["r"]][1,], cor_soil_ASV_starch[["r"]][1,])
+rownames(r_conc) <- c("microplastic", "macroplastic", "starch")
+P_conc <- rbind(cor_soil_ASV_microplastic[["P"]][1,], cor_soil_ASV_macroplastic[["P"]][1,], cor_soil_ASV_starch[["P"]][1,])
+rownames(P_conc) <- c("microplastic", "macroplastic", "starch")
+cor_conc <- list(r=r_conc, P=P_conc)
+
+
+title <- "soil: Plastic concentrations"
+subtitle <- "Inner circle: Microplastic\nMiddle Circle: Macroplastic\nOuter circle: Starch"
+plot_tree(phylotree_soil, cor_conc, c("microplastic", "macroplastic", "starch"), title, subtitle)
+
+```
+\vspace{5mm}
+
+**Conclusion differential abundance analysis:** *In general we do see that the microbiome in sand is more correlated to the phenotypic traits than in soil. We do not see any phyla which are more correlated to a phenotypic trait than others. But we do cleary see that a higher concentration of microplastic, macroplastic or starch is lowering the abundance of low abundant ASVs leading to a lower alpha diversity.*
+
+\pagebreak

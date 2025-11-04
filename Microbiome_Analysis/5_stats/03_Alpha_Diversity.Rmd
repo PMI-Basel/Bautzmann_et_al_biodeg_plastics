@@ -1,0 +1,727 @@
+---
+title: "Microplastic - 03: Alpha Diversity"
+author: "Jan Waelchli"
+geometry: margin=2cm
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+---
+
+\pagebreak
+
+```{r setup, include=FALSE, echo=F, warning=F, message=F,}
+
+##clear the object from memory
+rm(list=ls())
+
+#knitr settings
+knitr::opts_chunk$set(echo=TRUE, fig.align="center")
+options(tinytex.verbose = TRUE)
+
+#set seed
+set.seed(100)
+
+#paths
+paths <- list(functions="functions/")
+
+## set source
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path))
+
+## load functions
+source(paste0(paths$functions,"functions.R"))
+functions(path=paths$functions)
+
+## installs (if necessary) and loads libraries
+libraries()
+library(tidyverse)
+library(lme4)
+
+```
+
+```{r import, echo=F, message=F, warning=F}
+
+# Import
+
+# set wd to RDS files
+setwd("interim/01_Import_Normalization")
+
+#Import RDS files
+rare_threshold <- readRDS("rare_threshold.RDS")
+
+DESIGN <- readRDS("DESIGN.RDS")
+DAT <- readRDS("DAT.RDS")
+DAT_rare <- readRDS("DAT_rare.RDS")
+
+DESIGN_sand <- readRDS("DESIGN_sand.RDS")
+DAT_sand <- readRDS("DAT_sand.RDS")
+DAT_sand_rare <- readRDS("DAT_sand_rare.RDS")
+
+DESIGN_root_sand <- readRDS("DESIGN_root_sand.RDS")
+DAT_root_sand <- readRDS("DAT_root_sand.RDS")
+DAT_root_sand_rare <- readRDS("DAT_root_sand_rare.RDS")
+
+DESIGN_root_soil <- readRDS("DESIGN_root_soil.RDS")
+DAT_root_soil <- readRDS("DAT_root_soil.RDS")
+DAT_root_soil_rare <- readRDS("DAT_root_soil_rare.RDS")
+
+DESIGN_soil <- readRDS("DESIGN_soil.RDS")
+DAT_soil <- readRDS("DAT_soil.RDS")
+DAT_soil_rare <- readRDS("DAT_soil_rare.RDS")
+
+level_cols_Plastic <- readRDS("level_cols_Plastic.RDS")
+level_cols_Substrate <- readRDS("level_cols_Substrate.RDS")
+
+```
+
+# Alpha diversity
+
+We answer the following question for the alpha diversity in each substrate:
+
+-   **Q1: Are there differences in alpha diversity between the different treatments?**
+-   **Q2: Are there differences in alpha diversity between the different concentrations?**
+<!-- -   **Q3: Are there differences in alpha diversity between the samples with plant and samples without plants?** -->
+
+\vspace{10mm}
+
+## Rarefaction
+
+### Figure 3 \| Rarefaction
+
+Before analyzing the alpha diversity, we conduct the rarefaction plot to make sure that no diversity is lost due to a too low rarefaction threshold.
+
+\vspace{5mm}
+
+```{r rarefaction, eval=T, echo=F, message=F, warning=F, fig.height=5, fig.width=6}
+
+#rarefaction all substrate
+
+pdf(NULL) #prevents drawing of standard rarefaction plot (we will create our own with colors)
+rarefaction <- rarecurve(t(DAT), step=200, 7000)
+invisible(dev.off())
+
+#png("rarefaction.png",4000, 3200, res = 600)
+
+#limit for plotting
+bSmax <- sapply(rarefaction, max)
+
+### BACTERIA ###
+#plot rarefaction
+par(mar=c(5.1, 4.1, 2.1, 2.1), xpd=F)#add extra space on the rigth side
+plot(c(1, 50000), c(1, max(bSmax)), xlab="Sequencing depth", main="Bacteria: Rarefaction",
+     ylab="number of ASVs", type="n", las=1, ylim=c(0,600))
+for (i in seq_along(rarefaction)) {
+  N <- attr(rarefaction[[i]], "Subsample")
+  lines(N, rarefaction[[i]], col=DESIGN$cols_Substrate[i], lwd=0.5)
+}
+#add rarefaction threshold
+abline(v=rare_threshold, lty = "longdash", lwd=2, col="red")
+
+legend("bottomright", title.adj = 0.2, title = "Substrate", inset=c(0, 0),
+       legend=names(level_cols_Substrate),
+       pch=16, bty = "n", col=level_cols_Substrate)
+
+```
+
+
+```{r rarefaction subplots, eval=T, echo=F, message=F, warning=F, fig.height=5, fig.width=6}
+
+#function to plot subsets
+rarefaction_plot <- function(substrate){
+  #get subseted data & design
+  data_sub <- get(paste0("DAT_", tolower(substrate)))
+  design_sub <- get(paste0("DESIGN_", tolower(substrate)))
+  #subset colorstring
+  level_cols_sub <- level_cols_Substrate[grepl(paste0("^", substrate), names(level_cols_Substrate), ignore.case = T)]
+  #rarefy
+  pdf(NULL) #prevents drawing of standard rarefaction plot (we will create our own with colors)
+  rarefaction <- rarecurve(t(data_sub), step=200, 7000)
+  invisible(dev.off())
+  #limit for plotting
+  bSmax <- sapply(rarefaction, max)
+  #plot rarefaction
+  par(mar=c(5.1, 4.1, 2.1, 2.1), xpd=F)#add extra space on the rigth side
+  plot(c(1, 50000), c(1, max(bSmax)), xlab="Sequencing depth", main="Rarefaction",
+       ylab="number of ASVs", type="n", las=1, ylim=c(0,600))
+  for (i in seq_along(rarefaction)) {
+    N <- attr(rarefaction[[i]], "Subsample")
+    lines(N, rarefaction[[i]], col=design_sub$cols_Substrate[i], lwd=0.5)
+  }
+  #add rarefaction threshold
+  abline(v=rare_threshold, lty = "longdash", lwd=2, col="red")
+  legend("bottomright", title.adj = 0.2, title = "Substrate", inset=c(0, 0),
+         legend=names(level_cols_sub),
+         pch=16, bty = "n", col=level_cols_sub)
+  
+}
+
+
+#make plots
+rarefaction_plot("Soil")
+rarefaction_plot("Root_soil")
+rarefaction_plot("Root_sand")
+rarefaction_plot("Sand")
+
+```
+
+\vspace{5mm}
+
+**Conclusion:** We chose a rarefaction threshold that do cover the majority of diversity in each sample.
+
+\vspace{10mm}
+\pagebreak
+
+## Alpha Diversity
+
+Method: We rarefy the dataset by the sequencing depth of `r rare_threshold` and calculate the Shannon diversity for each sample. This is repeated 100 times. Then, the mean value from the 100 iterations is taken for statistical analysis between the different samples.
+
+```{r a-div shannon, warning=F, echo=F, message=F, eval=T}
+
+####
+#easier to write, from here on we only use the rarefied datasets
+DAT_sand <- DAT_sand_rare
+DAT_root_sand <- DAT_root_sand_rare
+DAT_root_soil <- DAT_root_soil_rare
+DAT_soil <- DAT_soil_rare
+####
+
+repetitions <- 1
+
+#sand
+
+  #rarefy data a 100 time and calculate each time the alpha diversity (shannon)
+  #differs each time because rarefaction is a random process
+  diversity_DAT_sand_mat <- c()
+  for (i in 1:repetitions){
+    #generate rarefied community
+    temp_mat <- t(rrarefy(t(DAT_sand), rare_threshold))
+    #calculate shannon
+    shannon <- vegan::diversity(temp_mat, index="shannon", MARGIN=2)
+    d <- exp(shannon)
+    #combine
+    diversity_DAT_sand_mat <- cbind(diversity_DAT_sand_mat, d)
+  }
+
+#calculate means of subsamples
+asv_diversity <- rowMeans(diversity_DAT_sand_mat)
+#put them all in one dataframe
+alpha_diversity_DAT_sand_summary <- cbind(asv_diversity, DESIGN_sand)
+rm(diversity_DAT_sand_mat, alpha_diversity)
+
+
+#root_sand
+
+  #rarefy data a 100 time and calculate each time the alpha diversity (shannon)
+  #differs each time because rarefaction is a random process
+  diversity_DAT_root_sand_mat <- c()
+  for (i in 1:repetitions){
+    #generate rarefied community
+    temp_mat <- t(rrarefy(t(DAT_root_sand), rare_threshold))
+    #calculate shannon
+    shannon <- vegan::diversity(temp_mat, index="shannon", MARGIN=2)
+    d <- exp(shannon)
+    #combine
+    diversity_DAT_root_sand_mat <- cbind(diversity_DAT_root_sand_mat, d)
+  }
+
+#calculate means of subsamples
+asv_diversity <- rowMeans(diversity_DAT_root_sand_mat)
+#put them all in one dataframe
+alpha_diversity_DAT_root_sand_summary <- cbind(asv_diversity, DESIGN_root_sand)
+rm(diversity_DAT_root_sand_mat, alpha_diversity)
+
+
+#root_soil
+
+  #rarefy data a 100 time and calculate each time the alpha diversity (shannon)
+  #differs each time because rarefaction is a random process
+  diversity_DAT_root_soil_mat <- c()
+  for (i in 1:repetitions){
+    #generate rarefied community
+    temp_mat <- t(rrarefy(t(DAT_root_soil), rare_threshold))
+    #calculate shannon
+    shannon <- vegan::diversity(temp_mat, index="shannon", MARGIN=2)
+    d <- exp(shannon)
+    #combine
+    diversity_DAT_root_soil_mat <- cbind(diversity_DAT_root_soil_mat, d)
+  }
+
+#calculate means of subsamples
+asv_diversity <- rowMeans(diversity_DAT_root_soil_mat)
+#put them all in one dataframe
+alpha_diversity_DAT_root_soil_summary <- cbind(asv_diversity, DESIGN_root_soil)
+rm(diversity_DAT_root_soil_mat, alpha_diversity)
+
+
+#soil
+
+  #rarefy data a 100 time and calculate each time the alpha diversity (shannon)
+  #differs each time because rarefaction is a random process
+  diversity_DAT_soil_mat <- c()
+  for (i in 1:repetitions){
+    #generate rarefied community
+    temp_mat <- t(rrarefy(t(DAT_soil), rare_threshold))
+    #calculate shannon
+    shannon <- vegan::diversity(temp_mat, index="shannon", MARGIN=2)
+    d <- exp(shannon)
+    #combine
+    diversity_DAT_soil_mat <- cbind(diversity_DAT_soil_mat, d)
+  }
+
+#calculate means of subsamples
+asv_diversity <- rowMeans(diversity_DAT_soil_mat)
+#put them all in one dataframe
+alpha_diversity_DAT_soil_summary <- cbind(asv_diversity, DESIGN_soil)
+rm(diversity_DAT_soil_mat, alpha_diversity)
+
+```
+
+\vspace{10mm}
+
+## Overview
+
+We get an overview for each substrate by investigating the effect on alpha diversity by the factors of plastic, concentration and the interaction between them. We model the alpha diversity against these factors in an aov-model and perform a F-Test.
+
+```{r a-div all bacteria tp * hc in root, warning=F, echo=F, message=F, eval=T}
+
+#sand
+alpha_sand_aov <- aov(asv_diversity ~ Plastic * Concentration + Plant, data=alpha_diversity_DAT_sand_summary)
+pander(summary(alpha_sand_aov), caption = "Sand: F test")
+
+#root_sand
+alpha_root_sand_aov <- aov(asv_diversity ~ Plastic * Concentration, data=alpha_diversity_DAT_root_sand_summary)
+pander(summary(alpha_root_sand_aov), caption = "Root_sand: F test")
+
+#root_soil
+alpha_root_soil_aov <- aov(asv_diversity ~ Plastic * Concentration, data=alpha_diversity_DAT_root_soil_summary)
+pander(summary(alpha_root_soil_aov), caption = "Root_soil: F test")
+
+#Soil
+alpha_soil_aov <- aov(asv_diversity ~ Plastic * Concentration + Plant, data=alpha_diversity_DAT_soil_summary)
+pander(summary(alpha_soil_aov), caption = "Soil: F test")
+
+```
+
+**Conclusion:** We find an effect on the alpha diversity between the different plastics and for the plastic concentration in sand.
+
+\pagebreak
+
+## Plastic effect
+
+**Q1: Are there differences in alpha diversity between the different treatments (samples with plant)?**\
+For this analysis we only conduct samples with plants. Plants were either treated with no plastic (control), microplastic, macroplastic or starch. We saw above that the treatment is shaping the alpha diversity. We investigate now in which direction is the alpha diversity shifted by the single treatments by looking at Shannon diversity, richness and evenness.
+
+### Shannon Diversity
+
+```{r a-div Plastic shanon, warning=F, echo=F, message=F, eval=T}
+
+pairwise_test_Plastic <- function(aov_data, summary_data){
+  alpha_aov_tukey <- emmeans(aov_data, c("Plastic"))  # library(emmeans)
+  alpha_aov_tukey_letters <- cld(alpha_aov_tukey, Letter="abcdefghi", alpha=0.05)
+  # means
+  alpha_means <- aggregate(summary_data$asv_diversity,list(summary_data$Plastic), mean)
+  # table
+  alpha_aov_tukey_letters <- alpha_aov_tukey_letters[order(with(alpha_aov_tukey_letters, Plastic)),]
+  alpha_means <- alpha_means[order(with(alpha_means, Group.1, Group.2)),]
+  alpha_table <- data.frame(Plastic=alpha_means[,1], alphaIndex=alpha_means[,2], letters=alpha_aov_tukey_letters[,7])
+  return(alpha_table)
+}
+
+#sand
+df <- alpha_diversity_DAT_sand_summary[alpha_diversity_DAT_sand_summary$Plant == T,] #subset for only plant samples
+alpha_sand_aov <- aov(asv_diversity ~ Plastic, data=df)
+alpha_table_Plastic_sand <- pairwise_test_Plastic(alpha_sand_aov, df)
+pander(alpha_table_Plastic_sand, caption = "Plastic effect in sand")
+
+#root_sand
+df <- alpha_diversity_DAT_root_sand_summary[alpha_diversity_DAT_root_sand_summary$Plant == T,]
+alpha_root_sand_aov <- aov(asv_diversity ~ Plastic, data=df)
+alpha_table_Plastic_root_sand <- pairwise_test_Plastic(alpha_root_sand_aov, df)
+pander(alpha_table_Plastic_root_sand, caption = "Plastic effect in root_sand")
+
+#root_soil
+df <- alpha_diversity_DAT_root_soil_summary[alpha_diversity_DAT_root_soil_summary$Plant == T,]
+alpha_root_soil_aov <- aov(asv_diversity ~ Plastic, data=df)
+alpha_table_Plastic_root_soil <- pairwise_test_Plastic(alpha_root_soil_aov, df)
+pander(alpha_table_Plastic_root_soil, caption = "Plastic effect in root_soil")
+
+#soil
+df <- alpha_diversity_DAT_soil_summary[alpha_diversity_DAT_soil_summary$Plant == T,]
+alpha_soil_aov <- aov(asv_diversity ~ Plastic, data=df)
+alpha_table_Plastic_soil <- pairwise_test_Plastic(alpha_soil_aov, df)
+pander(alpha_table_Plastic_soil, caption = "Plastic effect in soil")
+
+```
+
+### Figure 4.1 \| Plastic effect on alpha diversity
+\vspace{5mm}
+
+```{r plot a-div Plastic shanon, echo=F, message=F, warning=F, eval=T, , fig.height=5, fig.width=8}
+
+#combine data.frames
+alpha_diversity_DAT_summary <- rbind(alpha_diversity_DAT_sand_summary, alpha_diversity_DAT_root_sand_summary,
+                                     alpha_diversity_DAT_root_soil_summary, alpha_diversity_DAT_soil_summary)
+df <- alpha_diversity_DAT_summary[alpha_diversity_DAT_summary$Plant == T,]
+
+#data frame for letters
+alpha_table_Plastic <- rbind(alpha_table_Plastic_sand, alpha_table_Plastic_root_sand, alpha_table_Plastic_root_soil, alpha_table_Plastic_soil)
+alpha_table_Plastic$Substrate <- rep(c("Sand", "Root_sand", "Root_soil", "Soil"), each=4)
+alpha_table_Plastic$Substrate <- factor(alpha_table_Plastic$Substrate, levels=c("Sand", "Root_sand", "Root_soil", "Soil"))
+alpha_table_Plastic$letters <- trimws(alpha_table_Plastic$letters) #remove whitespaces
+alpha_table_Plastic$x <- rep(1:4, 4)
+alpha_table_Plastic$y <- c(
+tapply(alpha_diversity_DAT_sand_summary$asv_diversity, alpha_diversity_DAT_sand_summary$Plastic, max)+15,
+tapply(alpha_diversity_DAT_root_sand_summary$asv_diversity, alpha_diversity_DAT_root_sand_summary$Plastic, max)+15,
+tapply(alpha_diversity_DAT_root_soil_summary$asv_diversity, alpha_diversity_DAT_root_soil_summary$Plastic, max)+15,
+tapply(alpha_diversity_DAT_soil_summary$asv_diversity, alpha_diversity_DAT_soil_summary$Plastic, max)+15)
+
+#concentration
+df$Concentration <- factor(paste0(df$Concentration, "%"), levels=c("0%", "3%", "10%"))
+
+#plot
+ 
+plot <- ggplot(df, aes(y=asv_diversity, x=Plastic, fill=Plastic)) +
+            geom_boxplot(position=position_dodge2(width=0.75, preserve="single"),outlier.colour = NA) +
+            geom_jitter(size=1, position=position_jitterdodge(jitter.width=0.3,dodge.width = 0.75), alpha=0.7, aes(col=Concentration))+
+            theme_bw() +
+            theme(legend.position="none") +
+            ylab("Shanon Diversity")+
+            xlab("")+
+            scale_fill_manual(values=level_cols_Plastic) +
+            scale_color_manual(values=c("black","dimgrey","grey")) +
+            facet_grid(~ Substrate)+
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size=7), strip.text = element_text(size = 6)) +
+            labs(title = "Bacteria: Alpha diversity", subtitle = "alpha diversity ~ Plastic + Plant")+
+            geom_text(data = alpha_table_Plastic, aes(x=x, y=y, label=letters),size=4, col="dimgrey")
+
+
+
+### PLOT
+
+#combine the two plots (library cowplot)
+fig4 <- plot_grid(plot + theme(legend.position="bottom"))
+
+#print
+#png("figures/fig4.png",6400, 4000, res = 600)
+fig4
+#dev.off()
+
+```
+
+\vspace{5mm}
+**Conclusion:** In sand and, the alpha diversity is in overall reduced by treating with plastics. In roots from sand and soil, the opposite effect can be observed.
+
+\pagebreak
+
+### Richness
+
+```{r a-div Plastic richness, warning=F, echo=F, message=F, eval=T}
+
+#get richness
+alpha_diversity_DAT_sand_summary$richness <- apply(DAT_sand_rare, 2, function(x) sum(x > 0))
+alpha_diversity_DAT_root_sand_summary$richness <- apply(DAT_root_sand_rare, 2, function(x) sum(x > 0))
+alpha_diversity_DAT_root_soil_summary$richness <- apply(DAT_root_soil_rare, 2, function(x) sum(x > 0))
+alpha_diversity_DAT_soil_summary$richness <- apply(DAT_soil_rare, 2, function(x) sum(x > 0))
+
+#sand
+df <- alpha_diversity_DAT_sand_summary[alpha_diversity_DAT_sand_summary$Plant == T,] #subset for only plant samples
+alpha_sand_aov <- aov(richness ~ Plastic, data=df)
+alpha_table_Plastic_sand <- pairwise_test_Plastic(alpha_sand_aov, df)
+pander(alpha_table_Plastic_sand, caption = "Plastic effect in sand")
+
+#root_sand
+df <- alpha_diversity_DAT_root_sand_summary[alpha_diversity_DAT_root_sand_summary$Plant == T,]
+alpha_root_sand_aov <- aov(richness ~ Plastic, data=df)
+alpha_table_Plastic_root_sand <- pairwise_test_Plastic(alpha_root_sand_aov, df)
+pander(alpha_table_Plastic_root_sand, caption = "Plastic effect in root_sand")
+
+#root_soil
+df <- alpha_diversity_DAT_root_soil_summary[alpha_diversity_DAT_root_soil_summary$Plant == T,]
+alpha_root_soil_aov <- aov(richness ~ Plastic, data=df)
+alpha_table_Plastic_root_soil <- pairwise_test_Plastic(alpha_root_soil_aov, df)
+pander(alpha_table_Plastic_root_soil, caption = "Plastic effect in root_soil")
+
+#soil
+df <- alpha_diversity_DAT_soil_summary[alpha_diversity_DAT_soil_summary$Plant == T,]
+alpha_soil_aov <- aov(richness ~ Plastic, data=df)
+alpha_table_Plastic_soil <- pairwise_test_Plastic(alpha_soil_aov, df)
+pander(alpha_table_Plastic_soil, caption = "Plastic effect in soil")
+
+```
+
+```{r plot a-div Plastic richness, echo=F, message=F, warning=F, eval=T, , fig.height=5, fig.width=8}
+
+#combine data.frames
+alpha_diversity_DAT_summary <- rbind(alpha_diversity_DAT_sand_summary, alpha_diversity_DAT_root_sand_summary,
+                                     alpha_diversity_DAT_root_soil_summary, alpha_diversity_DAT_soil_summary)
+df <- alpha_diversity_DAT_summary[alpha_diversity_DAT_summary$Plant == T,]
+
+#data frame for letters
+alpha_table_Plastic <- rbind(alpha_table_Plastic_sand, alpha_table_Plastic_root_sand, alpha_table_Plastic_root_soil, alpha_table_Plastic_soil)
+alpha_table_Plastic$Substrate <- rep(c("Sand", "Root_sand", "Root_soil", "Soil"), each=4)
+alpha_table_Plastic$Substrate <- factor(alpha_table_Plastic$Substrate, levels=c("Sand", "Root_sand", "Root_soil", "Soil"))
+alpha_table_Plastic$letters <- trimws(alpha_table_Plastic$letters) #remove whitespaces
+alpha_table_Plastic$x <- rep(1:4, 4)
+alpha_table_Plastic$y <- c(
+tapply(alpha_diversity_DAT_sand_summary$richness, alpha_diversity_DAT_sand_summary$Plastic, max)+15,
+tapply(alpha_diversity_DAT_root_sand_summary$richness, alpha_diversity_DAT_root_sand_summary$Plastic, max)+15,
+tapply(alpha_diversity_DAT_root_soil_summary$richness, alpha_diversity_DAT_root_soil_summary$Plastic, max)+15,
+tapply(alpha_diversity_DAT_soil_summary$richness, alpha_diversity_DAT_soil_summary$Plastic, max)+15)
+
+#concentration
+df$Concentration <- factor(paste0(df$Concentration, "%"), levels=c("0%", "3%", "10%"))
+
+#plot
+ 
+plot <- ggplot(df, aes(y=richness, x=Plastic, fill=Plastic)) +
+            geom_boxplot(position=position_dodge2(width=0.75, preserve="single"),outlier.colour = NA) +
+            geom_jitter(size=1, position=position_jitterdodge(jitter.width=0.3,dodge.width = 0.75), alpha=0.7, aes(col=Concentration))+
+            theme_bw() +
+            theme(legend.position="none") +
+            ylab("Richness")+
+            xlab("")+
+            scale_fill_manual(values=level_cols_Plastic) +
+            scale_color_manual(values=c("black","dimgrey","grey")) +
+            facet_grid(~ Substrate)+
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size=7), strip.text = element_text(size = 6)) +
+            labs(title = "Bacteria: Alpha diversity", subtitle = "alpha diversity ~ Plastic + Plant")+
+            geom_text(data = alpha_table_Plastic, aes(x=x, y=y, label=letters),size=4, col="dimgrey")
+
+
+
+### PLOT
+
+#combine the two plots (library cowplot)
+fig4 <- plot_grid(plot + theme(legend.position="bottom"))
+
+#print
+#png("figures/fig4.2.png",6400, 4000, res = 600)
+fig4
+#dev.off()
+
+```
+
+
+\pagebreak
+
+### Pieulou's evenness
+
+```{r a-div Plastic evenness, warning=F, echo=F, message=F, eval=T}
+
+library(chemodiv)
+
+#get evenness
+alpha_diversity_DAT_sand_summary$evenness <- unlist(chemodiv::calcDiv(t(DAT_sand_rare), type = "PielouEven"))
+alpha_diversity_DAT_root_sand_summary$evenness <- unlist(chemodiv::calcDiv(t(DAT_root_sand_rare), type = "PielouEven"))
+alpha_diversity_DAT_root_soil_summary$evenness <- unlist(chemodiv::calcDiv(t(DAT_root_soil_rare), type = "PielouEven"))
+alpha_diversity_DAT_soil_summary$evenness <- unlist(chemodiv::calcDiv(t(DAT_soil_rare), type = "PielouEven"))
+
+#sand
+df <- alpha_diversity_DAT_sand_summary[alpha_diversity_DAT_sand_summary$Plant == T,] #subset for only plant samples
+alpha_sand_aov <- aov(evenness ~ Plastic, data=df)
+alpha_table_Plastic_sand <- pairwise_test_Plastic(alpha_sand_aov, df)
+pander(alpha_table_Plastic_sand, caption = "Plastic effect in sand")
+
+#root_sand
+df <- alpha_diversity_DAT_root_sand_summary[alpha_diversity_DAT_root_sand_summary$Plant == T,]
+alpha_root_sand_aov <- aov(evenness ~ Plastic, data=df)
+alpha_table_Plastic_root_sand <- pairwise_test_Plastic(alpha_root_sand_aov, df)
+pander(alpha_table_Plastic_root_sand, caption = "Plastic effect in root_sand")
+
+#root_soil
+df <- alpha_diversity_DAT_root_soil_summary[alpha_diversity_DAT_root_soil_summary$Plant == T,]
+alpha_root_soil_aov <- aov(evenness ~ Plastic, data=df)
+alpha_table_Plastic_root_soil <- pairwise_test_Plastic(alpha_root_soil_aov, df)
+pander(alpha_table_Plastic_root_soil, caption = "Plastic effect in root_soil")
+
+#soil
+df <- alpha_diversity_DAT_soil_summary[alpha_diversity_DAT_soil_summary$Plant == T,]
+alpha_soil_aov <- aov(evenness ~ Plastic, data=df)
+alpha_table_Plastic_soil <- pairwise_test_Plastic(alpha_soil_aov, df)
+pander(alpha_table_Plastic_soil, caption = "Plastic effect in soil")
+
+```
+
+```{r plot a-div Plastic evenness, echo=F, message=F, warning=F, eval=T, , fig.height=5, fig.width=8}
+
+#combine data.frames
+alpha_diversity_DAT_summary <- rbind(alpha_diversity_DAT_sand_summary, alpha_diversity_DAT_root_sand_summary,
+                                     alpha_diversity_DAT_root_soil_summary, alpha_diversity_DAT_soil_summary)
+df <- alpha_diversity_DAT_summary[alpha_diversity_DAT_summary$Plant == T,]
+
+#data frame for letters
+alpha_table_Plastic <- rbind(alpha_table_Plastic_sand, alpha_table_Plastic_root_sand, alpha_table_Plastic_root_soil, alpha_table_Plastic_soil)
+alpha_table_Plastic$Substrate <- rep(c("Sand", "Root_sand", "Root_soil", "Soil"), each=4)
+alpha_table_Plastic$Substrate <- factor(alpha_table_Plastic$Substrate, levels=c("Sand", "Root_sand", "Root_soil", "Soil"))
+alpha_table_Plastic$letters <- trimws(alpha_table_Plastic$letters) #remove whitespaces
+alpha_table_Plastic$x <- rep(1:4, 4)
+alpha_table_Plastic$y <- c(
+tapply(alpha_diversity_DAT_sand_summary$evenness, alpha_diversity_DAT_sand_summary$Plastic, max)+0.02,
+tapply(alpha_diversity_DAT_root_sand_summary$evenness, alpha_diversity_DAT_root_sand_summary$Plastic, max)+0.02,
+tapply(alpha_diversity_DAT_root_soil_summary$evenness, alpha_diversity_DAT_root_soil_summary$Plastic, max)+0.02,
+tapply(alpha_diversity_DAT_soil_summary$evenness, alpha_diversity_DAT_soil_summary$Plastic, max)+0.02)
+
+#concentration
+df$Concentration <- factor(paste0(df$Concentration, "%"), levels=c("0%", "3%", "10%"))
+
+#plot
+ 
+plot <- ggplot(df, aes(y=evenness, x=Plastic, fill=Plastic)) +
+            geom_boxplot(position=position_dodge2(width=0.75, preserve="single"),outlier.colour = NA) +
+            geom_jitter(size=1, position=position_jitterdodge(jitter.width=0.3,dodge.width = 0.75), alpha=0.7, aes(col=Concentration))+
+            theme_bw() +
+            theme(legend.position="none") +
+            ylab("Pielou’s evenness")+
+            xlab("")+
+            scale_fill_manual(values=level_cols_Plastic) +
+            scale_color_manual(values=c("black","dimgrey","grey")) +
+            facet_grid(~ Substrate)+
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size=7), strip.text = element_text(size = 6)) +
+            labs(title = "Bacteria: Alpha diversity", subtitle = "alpha diversity ~ Plastic + Plant")+
+            geom_text(data = alpha_table_Plastic, aes(x=x, y=y, label=letters),size=4, col="dimgrey")
+
+
+
+### PLOT
+
+#combine the two plots (library cowplot)
+fig4 <- plot_grid(plot + theme(legend.position="bottom"))
+
+#print
+#png("figures/fig4.3.png",6400, 4000, res = 600)
+fig4
+#dev.off()
+
+```
+
+\pagebreak
+
+## Concentrations effect
+
+**Q2: Are there differences in alpha diversity between the different concentrations?**\
+Plants were either treated with no plastic (control), microplastic, macroplastic or starch. Plastic was added in a 3% or 10% concenctration. From the stats above we could see that the concentration has an effect on the alpha diversity in sand. We investigate now in which direction is the alpha diversity shifted by the different concentrations.
+
+```{r a-div Concentration, warning=F, echo=F, message=F, eval=T}
+
+pairwise_test_Concentration <- function(aov_data, summary_data){
+  alpha_aov_tukey <- emmeans(aov_data, c("Concentration"))  # library(emmeans)
+  alpha_aov_tukey_letters <- cld(alpha_aov_tukey, Letter="abcdefghi", alpha=0.05)
+  # means
+  alpha_means <- aggregate(summary_data$asv_diversity,list(summary_data$Concentration), mean)
+  # table
+  alpha_aov_tukey_letters <- alpha_aov_tukey_letters[order(with(alpha_aov_tukey_letters, Concentration)),]
+  alpha_means <- alpha_means[order(with(alpha_means, Group.1, Group.2)),]
+  alpha_table <- data.frame(Concentration=alpha_means[,1], Shannon=alpha_means[,2], letters=alpha_aov_tukey_letters[,7])
+  return(alpha_table)
+}
+
+#sand
+df <- alpha_diversity_DAT_sand_summary[alpha_diversity_DAT_sand_summary$Plant == T,] #subset for only plant samples
+alpha_sand_aov <- aov(asv_diversity ~ Concentration, data=df)
+alpha_table_Concentration_sand <- pairwise_test_Concentration(alpha_sand_aov, df)
+alpha_table_Concentration_sand$Concentration <- paste0(alpha_table_Concentration_sand$Concentration, "%")
+alpha_table_Concentration_sand <- alpha_table_Concentration_sand[c(1,3,2),]
+pander(alpha_table_Concentration_sand, caption = "Concentration effect in sand")
+#root_sand
+df <- alpha_diversity_DAT_root_sand_summary[alpha_diversity_DAT_root_sand_summary$Plant == T,]
+alpha_root_sand_aov <- aov(asv_diversity ~ Concentration, data=df)
+alpha_table_Concentration_root_sand <- pairwise_test_Concentration(alpha_root_sand_aov, df)
+alpha_table_Concentration_root_sand$Concentration <- paste0(alpha_table_Concentration_root_sand$Concentration, "%")
+alpha_table_Concentration_root_sand <- alpha_table_Concentration_root_sand[c(1,3,2),]
+pander(alpha_table_Concentration_root_sand, caption = "Concentration effect in root_sand")
+
+#root_soil
+df <- alpha_diversity_DAT_root_soil_summary[alpha_diversity_DAT_root_soil_summary$Plant == T,]
+alpha_root_soil_aov <- aov(asv_diversity ~ Concentration, data=df)
+alpha_table_Concentration_root_soil <- pairwise_test_Concentration(alpha_root_soil_aov, df)
+alpha_table_Concentration_root_soil$Concentration <- paste0(alpha_table_Concentration_root_soil$Concentration, "%")
+alpha_table_Concentration_root_soil <- alpha_table_Concentration_root_soil[c(1,3,2),]
+pander(alpha_table_Concentration_root_soil, caption = "Concentration effect in root_soil")
+
+#soil
+df <- alpha_diversity_DAT_soil_summary[alpha_diversity_DAT_soil_summary$Plant == T,]
+alpha_soil_aov <- aov(asv_diversity ~ Concentration, data=df)
+alpha_table_Concentration_soil <- pairwise_test_Concentration(alpha_soil_aov, df)
+alpha_table_Concentration_soil$Concentration <- paste0(alpha_table_Concentration_soil$Concentration, "%")
+alpha_table_Concentration_soil <- alpha_table_Concentration_soil[c(1,3,2),]
+pander(alpha_table_Concentration_soil, caption = "Concentration effect in soil")
+
+```
+
+### Figure 4.1 \| Concentration effect on alpha diversity
+\vspace{5mm}
+
+```{r plot a-div Concentration, echo=F, message=F, warning=F, eval=T, , fig.height=5, fig.width=8}
+
+#combine data.frames
+alpha_diversity_DAT_summary <- rbind(alpha_diversity_DAT_sand_summary, alpha_diversity_DAT_root_sand_summary,
+                                     alpha_diversity_DAT_root_soil_summary, alpha_diversity_DAT_soil_summary)
+df <- alpha_diversity_DAT_summary[alpha_diversity_DAT_summary$Plant == T,]
+
+#data frame for letters
+alpha_table_Concentration <- rbind(alpha_table_Concentration_sand, alpha_table_Concentration_root_sand, alpha_table_Concentration_root_soil, alpha_table_Concentration_soil)
+alpha_table_Concentration$Substrate <- rep(c("Sand", "Root_sand", "Root_soil", "Soil"), each=3)
+alpha_table_Concentration$Substrate <- factor(alpha_table_Concentration$Substrate, levels=c("Sand", "Root_sand", "Root_soil", "Soil"))
+alpha_table_Concentration$letters <- trimws(alpha_table_Concentration$letters) #remove whitespaces
+alpha_table_Concentration$x <- rep(c(1,2,3), 4)
+alpha_table_Concentration$y <- c(
+tapply(alpha_diversity_DAT_sand_summary$asv_diversity, alpha_diversity_DAT_sand_summary$Concentration, max)[c(1,3,2)]+15,
+tapply(alpha_diversity_DAT_root_sand_summary$asv_diversity, alpha_diversity_DAT_root_sand_summary$Concentration, max)[c(1,3,2)]+15,
+tapply(alpha_diversity_DAT_root_soil_summary$asv_diversity, alpha_diversity_DAT_root_soil_summary$Concentration, max)[c(1,3,2)]+15,
+tapply(alpha_diversity_DAT_soil_summary$asv_diversity, alpha_diversity_DAT_soil_summary$Concentration, max)[c(1,3,2)]+15)
+
+#concentration
+df$Substrate <- factor(df$Substrate, levels=c("Sand", "Root_sand", "Root_soil", "Soil"))
+df$Concentration <- factor(paste0(df$Concentration, "%"), levels=c("0%", "3%", "10%"))
+
+#plot
+ 
+plot <- ggplot(df, aes(y=asv_diversity, x=Concentration, fill=Concentration)) +
+            geom_boxplot(position=position_dodge2(width=0.75, preserve="single"),outlier.colour = NA, alpha=0.7) +
+            geom_jitter(size=1, position=position_jitterdodge(jitter.width=0.3,dodge.width = 0.75), alpha=0.7, aes(col=Plastic))+
+            theme_bw() +
+            theme(legend.position="none") +
+            ylab("Shanon Diversity")+
+            xlab("")+
+            scale_fill_manual(values=c("black","dimgrey","grey")) +
+            scale_color_manual(values=level_cols_Plastic) +
+            facet_grid(~ Substrate)+
+            theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size=7), strip.text = element_text(size = 6)) +
+            labs(title = "Bacteria: Alpha diversity", subtitle = "alpha diversity ~ Concentration + Plant")+
+            geom_text(data = alpha_table_Concentration, aes(x=x, y=y, label=letters),size=4, col="dimgrey")
+
+
+
+### PLOT
+
+#combine the two plots (library cowplot)
+fig4 <- plot_grid(plot + theme(legend.position="bottom"))
+
+#print
+#png("figures/fig4.png",6400, 4000, res = 600)
+fig4
+#dev.off()
+
+```
+
+\vspace{5mm}
+**Conclusion:** A sand and soil is the alpha diversity is in overall reduced by treating with plastics. In roots from sand, the opposite effect can be observed. Roots from soil don't show effects. There is no clear effect that a higher concentration of plastic has a stronger effect than a lower concentration.
+
+**Conclusion alpha diversity:** *In sand and soil, the alpha diversity was reduced by treating samples with microplastic, macroplastic or starch. In roots from sand or soil, the opposite effect could be observed. There is no clear effect, that a higher plastic concentration shows a stronger response on the alpha diversity. *
+
+```{r export RDA files, , echo=F, message=F, warning=F}
+
+# create directory
+dir.create("interim")
+dir.create("interim/03_Alpha_Diversity")
+
+## set output directory
+setwd("interim/03_Alpha_Diversity")
+
+#save objects needed in the following scripts as RDA
+saveRDS(alpha_diversity_DAT_summary, "alpha_diversity_DAT_summary.RDS")
+
+```
+
+\pagebreak

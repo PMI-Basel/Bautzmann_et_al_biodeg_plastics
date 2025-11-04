@@ -1,0 +1,2258 @@
+---
+title: "Microplastic - 05: Differential Abundance Analysis"
+author: "Jan Waelchli"
+geometry: margin=2cm
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+---
+   
+```{r setup, include=FALSE, echo=F, warning=F, message=F,}
+
+##clear the object from memory
+rm(list=ls())
+
+#knitr settings
+knitr::opts_chunk$set(echo=TRUE, fig.align="center")
+options(tinytex.verbose = TRUE)
+
+#set seed
+set.seed(100)
+
+#paths
+paths <- list(functions="functions/")
+
+## set source
+library(rstudioapi)
+setwd(dirname(getActiveDocumentContext()$path))
+
+## load functions
+source(paste0(paths$functions,"functions.R"))
+functions(path=paths$functions)
+
+## installs (if necessary) and loads libraries
+libraries()
+library(Biostrings)
+library(ampir)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+
+#set to true if tree-files were computed
+treefiles <- T
+
+
+```
+
+```{r paths, echo=F, message=F, warning=F}
+
+# Import
+
+#set wd to RDS files
+setwd("interim/01_Import_Normalization")
+
+#Import RDS files
+DESIGN <- readRDS("DESIGN.RDS")
+DAT <- readRDS("DAT.RDS")
+DAT_rare <- readRDS("DAT_rare.RDS")
+TAX <- readRDS("TAX.RDS")
+
+DESIGN_sand <- readRDS("DESIGN_sand.RDS")
+DAT_sand <- readRDS("DAT_sand.RDS")
+DAT_sand_rare <- readRDS("DAT_sand_rare.RDS")
+TAX_sand <- readRDS("TAX_sand.RDS")
+
+DESIGN_root_sand <- readRDS("DESIGN_root_sand.RDS")
+DAT_root_sand <- readRDS("DAT_root_sand.RDS")
+DAT_root_sand_rare <- readRDS("DAT_root_sand_rare.RDS")
+TAX_root_sand <- readRDS("TAX_root_sand.RDS")
+
+DESIGN_root_soil <- readRDS("DESIGN_root_soil.RDS")
+DAT_root_soil <- readRDS("DAT_root_soil.RDS")
+DAT_root_soil_rare <- readRDS("DAT_root_soil_rare.RDS")
+TAX_root_soil <- readRDS("TAX_root_soil.RDS")
+
+DESIGN_soil <- readRDS("DESIGN_soil.RDS")
+DAT_soil <- readRDS("DAT_soil.RDS")
+DAT_soil_rare <- readRDS("DAT_soil_rare.RDS")
+TAX_soil <- readRDS("TAX_soil.RDS")
+
+level_cols_Plastic <- readRDS("level_cols_Plastic.RDS")
+level_cols_Substrate <- readRDS("level_cols_Substrate.RDS")
+TAX_level_cols_phyla <- readRDS("TAX_level_cols_phyla.RDS")
+
+PHYSEQ_phyla_melt <- readRDS("../02_Taxa_Analysis/PHYSEQ_phyla_melt.RDS")
+
+```
+
+
+\pagebreak
+
+# Taxa Response
+
+Is there a core of microbial taxa respond to the different plastic treatments? We searched sensitive ASVs – ASVs being differential abundant between CTRL samples and samples containing plastic.  We followed the same structure as before and answer the question:
+
+**Q1: Are there sensitive ASVs between control and plastic-treated samples?**
+
+We answer the question by using for different tools to measure differential abundances - aldex2, acombc, maaslin2 and metagenomeSeq - and predict ASVs to be different if they were detected by 3 or more tools.
+
+```{r prepro, echo=F, message=F, warning=F}
+
+preprocess <- function(DESIGN, DAT, sample_var){
+  
+  #preprocess (from ancom.R function file)
+  #out_cut: detect outlayers
+  #zero_cut: removes ASVs must be present in 90% of samples
+  prepro <- feature_table_pre_process(feature_table=DAT, meta_data=DESIGN, 
+                                       sample_var=sample_var, group_var=NULL, 
+                                       out_cut=0.5, zero_cut=0.9,
+                                       lib_cut=0, neg_lb=F)
+  #overwrite
+  feature_table <-  prepro$feature_table # Preprocessed feature table
+  meta_data <-  prepro$meta_data # Preprocessed metadata
+  return(list(feature_table, meta_data))
+}
+
+```
+
+## Relative abundance in sand
+
+We check for each ASV if it is sensitive or not to the different plastics. We show how many sensitive ASVs we have found for each plastic-treatment. Then, we plot the top 50 most abundant ASVs and label significant differences in red. Down below we show the phyla and class of those top abundant sensitive ASVs. 
+
+```{r sand: compute DAA, echo=F, message=F, warning=F}
+
+#microplastic
+
+#subset to microplastic
+DESIGN_sand_microplastic <-  DESIGN_sand[(DESIGN_sand$Plastic %in% c("CTRL", "microplastic") & DESIGN_sand$Plant==T),]
+DAT_sand_microplastic <- DAT_sand[colnames(DAT_sand) %in% DESIGN_sand_microplastic$AccessArray_barcode] #for DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_sand_microplastic, DAT_sand_microplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_sand_microplastic <- temp[[1]]; rm(temp)
+sens_ASVs_sand_microplastic <- summ_sand_microplastic$ASV[summ_sand_microplastic$score>2]
+
+
+#macroplastic
+
+#subset to macroplastic
+DESIGN_sand_macroplastic <-  DESIGN_sand[(DESIGN_sand$Plastic %in% c("CTRL", "macroplastic") & DESIGN_sand$Plant==T),]
+DAT_sand_macroplastic <- DAT_sand[colnames(DAT_sand) %in% DESIGN_sand_macroplastic$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_sand_macroplastic, DAT_sand_macroplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_sand_macroplastic <- temp[[1]]; rm(temp)
+sens_ASVs_sand_macroplastic <- summ_sand_macroplastic$ASV[summ_sand_macroplastic$score>2]
+
+
+#starch
+
+#subset to starch
+DESIGN_sand_starch <-  DESIGN_sand[(DESIGN_sand$Plastic %in% c("CTRL", "starch") & DESIGN_sand$Plant==T),]
+DAT_sand_starch <- DAT_sand[colnames(DAT_sand) %in% DESIGN_sand_starch$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_sand_starch, DAT_sand_starch, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_sand_starch <- temp[[1]]; rm(temp)
+sens_ASVs_sand_starch <- summ_sand_starch$ASV[summ_sand_starch$score>2]
+
+```
+
+
+```{r sand: summarise DAA, echo=F, message=F, warning=F}
+
+#relative abundance
+DAT_sand_rare <- as.data.frame(DAT_sand_rare)
+DAT_sand_rare <- (DAT_sand_rare/colSums(DAT_sand_rare)) * 100
+DAT_sand_rare <- as.data.frame(DAT_sand_rare[ rowSums(DAT_sand_rare) > 0,])
+
+#means & standard error
+means <- aggregate(t(DAT_sand_rare), list(DESIGN_sand$Plastic), mean) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+se <- aggregate(t(DAT_sand_rare), list(DESIGN_sand$Plastic), se) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+#sort by abundance of CTRL samples
+order <- order(-means$CTRL)
+means <- means[order,]
+se <- se[order,]
+
+summary <- pivot_longer(means, !(ASV), names_to="Plastic", values_to="means")
+summary$se <- pivot_longer(se, !(ASV), names_to="Plastic", values_to="se") %>% pull(se)
+summary$Plastic <- factor(summary$Plastic, levels=c("CTRL", "microplastic", "macroplastic", "starch"))
+summary$ASV <- factor(summary$ASV, levels=unique(summary$ASV)) #keep the sorted order of ASVs
+
+#add score
+#score
+summ_sand_microplastic$plastic <- "microplastic"
+summ_sand_macroplastic$plastic <- "macroplastic"
+summ_sand_starch$plastic <- "starch"
+summ <- rbind(summ_sand_microplastic, summ_sand_macroplastic, summ_sand_starch)
+
+#get score
+summary$score <- 0
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    score <- summ %>% filter(plastic == p) %>% filter(ASV == a) %>% pull(score)
+    if(length(score)==1){summary$score[(summary$Plastic==p & summary$ASV==a)] <- score}
+  }}
+
+#add if different abundant (score > 2)
+summary$sensitive <- ifelse(summary$score > 2, "sensitive", "not_sensitive")
+summary$sensitive <- as.factor(summary$sensitive)
+
+#add abundace in trt compared to ctrl
+summary$abu_trt <- "unchanged"
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    mean_ctrl <- summary$means[(summary$ASV==a) & (summary$Plastic=="CTRL")]
+    mean_trt <- summary$means[(summary$ASV==a) & (summary$Plastic==p)]
+    abu_sens <- summary$sensitive[(summary$ASV==a) & (summary$Plastic==p)]
+    if(abu_sens == "sensitive"){
+      trt_dir <- ifelse(mean_ctrl > mean_trt, "higher in CTRL", "lower in CTRL")
+      summary$abu_trt[(summary$ASV==a) & (summary$Plastic==p)] <- trt_dir
+      }
+  }
+}
+
+#add phyla and class
+summary$phylum <- NA
+summary$class <- NA
+summary$order <- NA
+summary$family <- NA
+summary$genus <- NA
+for(a in unique(summary$ASV)){
+  if(a %in% TAX$ASV_ID){
+    summary$phylum[summary$ASV == a] <- as.character(TAX$phylum[TAX$ASV_ID == a])
+    summary$class[summary$ASV == a] <- as.character(TAX$class[TAX$ASV_ID == a])
+    summary$order[summary$ASV == a] <- as.character(TAX$order[TAX$ASV_ID == a])
+    summary$family[summary$ASV == a] <- as.character(TAX$family[TAX$ASV_ID == a])
+    summary$genus[summary$ASV == a] <- as.character(TAX$genus[TAX$ASV_ID == a])
+  }
+  else{
+    summary$phylum[summary$ASV == a] <- "unassigned"
+    summary$class[summary$ASV == a] <- "unassigned"
+    summary$order[summary$ASV == a] <- "unassigned"
+    summary$family[summary$ASV == a] <- "unassigned"
+    summary$genus[summary$ASV == a] <- "unassigned"
+  }
+}
+
+summary_sand <- summary
+
+```
+
+### Different abundant ASVs
+
+We show how many ASVs has been changed due to the plastic treatments how much of the relative abundance belongs to those sensitive ASVs.
+
+```{r sand: show DAA microplastic, echo=F, message=F, warning=F}
+
+#pander how many ASVs are sensitive
+
+#microplastic
+summary_sand_microplastic <- summary[(summary$Plastic %in% c("CTRL", "microplastic")) & (summary$ASV %in% summ_sand_microplastic$ASV),]
+changed_abu_sand_microplastic <- sum(summary_sand_microplastic$means[summary_sand_microplastic$Plastic=="microplastic" &
+                                      summary_sand_microplastic$sensitive=="sensitive"])
+changed_abu_sand_microplastic <- paste0(round(changed_abu_sand_microplastic,2), "%")
+sens_sand_microplastic <- table(summary_sand_microplastic$abu_trt[summary_sand_microplastic$Plastic == "microplastic"])
+pander(sens_sand_microplastic[c(2,3,1)], caption = "microplastic effect in sand")
+
+```
+
+`r changed_abu_sand_microplastic` of the bacterial community in sand was changed in abundance due to microplastic.
+
+```{r sand: show DAA macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+summary_sand_macroplastic <- summary[(summary$Plastic %in% c("CTRL", "macroplastic")) & (summary$ASV %in% summ_sand_macroplastic$ASV),]
+changed_abu_sand_macroplastic <- sum(summary_sand_macroplastic$means[summary_sand_macroplastic$Plastic=="macroplastic" &
+                                      summary_sand_macroplastic$sensitive=="sensitive"])
+changed_abu_sand_macroplastic <- paste0(round(changed_abu_sand_macroplastic,2), "%")
+sens_sand_macroplastic <- table(summary_sand_macroplastic$abu_trt[summary_sand_macroplastic$Plastic == "macroplastic"])
+pander(sens_sand_macroplastic[c(2,3,1)], caption = "macroplastic effect in sand")
+
+```
+
+`r changed_abu_sand_macroplastic` of the bacterial community in sand was changed in abundance due to macroplastic.
+
+```{r sand: show DAA starch, echo=F, message=F, warning=F}
+
+#starch
+summary_sand_starch <- summary[(summary$Plastic %in% c("CTRL", "starch")) & (summary$ASV %in% summ_sand_starch$ASV),]
+changed_abu_sand_starch <- sum(summary_sand_starch$means[summary_sand_starch$Plastic=="starch" &
+                                      summary_sand_starch$sensitive=="sensitive"])
+changed_abu_sand_starch <- paste0(round(changed_abu_sand_starch,2), "%")
+sens_sand_starch <- table(summary_sand_starch$abu_trt[summary_sand_starch$Plastic == "starch"])
+pander(sens_sand_starch[c(2,3,1)], caption = "starch effect in sand")
+
+```
+
+`r changed_abu_sand_starch` of the bacterial community in sand was changed in abundance due to starch.
+
+\pagebreak
+
+### Relative abundance plot
+
+We plot the 50 top abundant ASVs (in controls) and label plastic sensitive ASVs in red.
+
+\vspace{5mm}
+
+```{r sand: relative abundance plot, echo=F, message=F, warning=F}
+
+#plot the 50 most abundant ASVs
+
+#set threshold for top abundant
+top_abu <- 50
+
+#plot
+ggplot(summary[1:(top_abu*4),], aes(ASV, means, fill=Plastic, col=sensitive))+
+  geom_bar(stat="identity", position="dodge", width = 0.8, size=0.2)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, size=6))+
+  scale_color_manual(values=c(NA, "red"))+
+  scale_fill_manual(values=level_cols_Plastic)+
+  geom_errorbar(aes(ymin=means, ymax=means+se/2), width=.3, position=position_dodge(.8))
+  #geom_text(aes(label = score, y=-0.2), position = position_dodge(.8), size=1)
+
+```
+
+\pagebreak
+
+### Taxonomy of abundant ASVs
+
+We show the taxonomy of top abundant ASVs which are plastic sensitive.
+
+```{r sand: relative abundance taxa microplastic, echo=F, message=F, warning=F}
+
+#microplastic
+
+#sensitive ASVs from top 50
+top_sensitive_microplastic <- pivot_wider(summary_sand_microplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_microplastic <- top_sensitive_microplastic[1:top_abu,] #top abundant
+top_sensitive_microplastic <- top_sensitive_microplastic[top_sensitive_microplastic$sensitive_microplastic =="sensitive",] #sensitive
+top_sensitive_microplastic <- top_sensitive_microplastic[,colnames(top_sensitive_microplastic) %in%
+                                                         c("ASV","means_CTRL","means_microplastic", "phylum", "class")] #column to pander
+top_sensitive_microplastic$means_CTRL <- paste0(round(top_sensitive_microplastic$means_CTRL,2),"%")
+top_sensitive_microplastic$means_microplastic <- paste0(round(top_sensitive_microplastic$means_microplastic,2),"%")
+colnames(top_sensitive_microplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_microplastic, caption="Top abundant ASVs sensitive to microplastic in sand")
+
+```
+
+\pagebreak
+
+```{r sand: relative abundance taxa macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+
+#sensitive ASVs from top 50
+top_sensitive_macroplastic <- pivot_wider(summary_sand_macroplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_macroplastic <- top_sensitive_macroplastic[1:top_abu,] #top abundant
+top_sensitive_macroplastic <- top_sensitive_macroplastic[top_sensitive_macroplastic$sensitive_macroplastic =="sensitive",] #sensitive
+top_sensitive_macroplastic <- top_sensitive_macroplastic[,colnames(top_sensitive_macroplastic) %in%
+                                                         c("ASV","means_CTRL","means_macroplastic", "phylum", "class")] #column to pander
+top_sensitive_macroplastic$means_CTRL <- paste0(round(top_sensitive_macroplastic$means_CTRL,2),"%")
+top_sensitive_macroplastic$means_macroplastic <- paste0(round(top_sensitive_macroplastic$means_macroplastic,2),"%")
+colnames(top_sensitive_macroplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_macroplastic, caption="Top abundant ASVs sensitive to macroplastic in sand")
+
+```
+
+\pagebreak
+
+```{r sand: relative abundance taxa starch, echo=F, message=F, warning=F}
+
+#starch
+
+#sensitive ASVs from top 50
+top_sensitive_starch <- pivot_wider(summary_sand_starch,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_starch <- top_sensitive_starch[1:top_abu,] #top abundant
+top_sensitive_starch <- top_sensitive_starch[top_sensitive_starch$sensitive_starch =="sensitive",] #sensitive
+top_sensitive_starch <- top_sensitive_starch[,colnames(top_sensitive_starch) %in%
+                                                         c("ASV","means_CTRL","means_starch", "phylum", "class")] #column to pander
+top_sensitive_starch$means_CTRL <- paste0(round(top_sensitive_starch$means_CTRL,2),"%")
+top_sensitive_starch$means_starch <- paste0(round(top_sensitive_starch$means_starch,2),"%")
+colnames(top_sensitive_starch)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_starch, caption="Top abundant ASVs sensitive to starch in sand")
+
+```
+
+\pagebreak
+
+### Sensitive Taxonomies
+
+We plot how many ASVs are sensitive to multiple plastic treatments and show frequent phyla, classes and families which are sensitive to all three plastic treatments.
+
+\vspace{5mm}
+
+```{r sand: Venn plot, echo=F, message=F, warning=F}
+
+ggvenn(list(microplastic=summary_sand_microplastic$ASV[summary_sand_microplastic$sensitive=="sensitive"],
+            macroplastic=summary_sand_macroplastic$ASV[summary_sand_macroplastic$sensitive=="sensitive"],
+            starch=summary_sand_starch$ASV[summary_sand_starch$sensitive=="sensitive"]),
+  fill_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  stroke_size = 0.5, set_name_size = 5, 
+  #set_name_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  show_percentage = F
+  )+
+  ggtitle("Sand: Sensitive bacterial ASVs in sand")
+
+```
+
+```{r sand: frequent sensitive taxa, echo=F, message=F, warning=F}
+
+# #sensitive taxonomy frequent in microplastic
+# 
+# #phylum
+# sensitive_microplastic_phylum <- summary_sand_microplastic[summary_sand_microplastic$sensitive=="sensitive",] %>% pull("phylum") %>% table() %>% sort(decreasing = T)
+# sensitive_microplastic_phylum <- as.data.frame(sensitive_microplastic_phylum[sensitive_microplastic_phylum >= 5]) #filter by phylum with more than 4 sensitive ASVs
+# colnames(sensitive_microplastic_phylum) <- c("phylum", "frequency")
+# pander(sensitive_microplastic_phylum, caption="Frequent phyla sensitive to microplastic  in sand")
+# 
+# #class
+# sensitive_microplastic_class <- summary_sand_microplastic[summary_sand_microplastic$sensitive=="sensitive",] %>% pull("class") %>% table() %>% sort(decreasing = T)
+# sensitive_microplastic_class <- as.data.frame(sensitive_microplastic_class[sensitive_microplastic_class >= 5]) #filter by class with more than 4 sensitive ASVs
+# colnames(sensitive_microplastic_class) <- c("class", "frequency")
+# pander(sensitive_microplastic_class, caption="Frequent classes sensitive to microplastic  in sand")
+# 
+# #familiy
+# sensitive_microplastic_family <- summary_sand_microplastic[summary_sand_microplastic$sensitive=="sensitive",] %>% pull("family") %>% table() %>% sort(decreasing = T)
+# sensitive_microplastic_family <- as.data.frame(sensitive_microplastic_family[sensitive_microplastic_family >= 5]) #filter by family with more than 4 sensitive ASVs
+# colnames(sensitive_microplastic_family) <- c("family", "frequency")
+# pander(sensitive_microplastic_family, caption="Frequent families sensitive to microplastic  in sand")
+# 
+# 
+# #sensitive taxonomy frequent in macroplastic
+# 
+# #phylum
+# sensitive_macroplastic_phylum <- summary_sand_macroplastic[summary_sand_macroplastic$sensitive=="sensitive",] %>% pull("phylum") %>% table() %>% sort(decreasing = T)
+# sensitive_macroplastic_phylum <- as.data.frame(sensitive_macroplastic_phylum[sensitive_macroplastic_phylum >= 5]) #filter by phylum with more than 4 sensitive ASVs
+# colnames(sensitive_macroplastic_phylum) <- c("phylum", "frequency")
+# pander(sensitive_macroplastic_phylum, caption="Frequent phyla sensitive to macroplastic  in sand")
+# 
+# #class
+# sensitive_macroplastic_class <- summary_sand_macroplastic[summary_sand_macroplastic$sensitive=="sensitive",] %>% pull("class") %>% table() %>% sort(decreasing = T)
+# sensitive_macroplastic_class <- as.data.frame(sensitive_macroplastic_class[sensitive_macroplastic_class >= 5]) #filter by class with more than 4 sensitive ASVs
+# colnames(sensitive_macroplastic_class) <- c("class", "frequency")
+# pander(sensitive_macroplastic_class, caption="Frequent classes sensitive to macroplastic  in sand")
+# 
+# #familiy
+# sensitive_macroplastic_family <- summary_sand_macroplastic[summary_sand_macroplastic$sensitive=="sensitive",] %>% pull("family") %>% table() %>% sort(decreasing = T)
+# sensitive_macroplastic_family <- as.data.frame(sensitive_macroplastic_family[sensitive_macroplastic_family >= 5]) #filter by family with more than 4 sensitive ASVs
+# colnames(sensitive_macroplastic_family) <- c("family", "frequency")
+# pander(sensitive_macroplastic_family, caption="Frequent families sensitive to macroplastic  in sand")
+# 
+# 
+# #sensitive taxonomy frequent in starch
+# 
+# #phylum
+# sensitive_starch_phylum <- summary_sand_starch[summary_sand_starch$sensitive=="sensitive",] %>% pull("phylum") %>% table() %>% sort(decreasing = T)
+# sensitive_starch_phylum <- as.data.frame(sensitive_starch_phylum[sensitive_starch_phylum >= 5]) #filter by phylum with more than 4 sensitive ASVs
+# colnames(sensitive_starch_phylum) <- c("phylum", "frequency")
+# pander(sensitive_starch_phylum, caption="Frequent phyla sensitive to starch  in sand")
+# 
+# #class
+# sensitive_starch_class <- summary_sand_starch[summary_sand_starch$sensitive=="sensitive",] %>% pull("class") %>% table() %>% sort(decreasing = T)
+# sensitive_starch_class <- as.data.frame(sensitive_starch_class[sensitive_starch_class >= 5]) #filter by class with more than 4 sensitive ASVs
+# colnames(sensitive_starch_class) <- c("class", "frequency")
+# pander(sensitive_starch_class, caption="Frequent classes sensitive to starch  in sand")
+# 
+# #familiy
+# sensitive_starch_family <- summary_sand_starch[summary_sand_starch$sensitive=="sensitive",] %>% pull("family") %>% table() %>% sort(decreasing = T)
+# sensitive_starch_family <- as.data.frame(sensitive_starch_family[sensitive_starch_family >= 5]) #filter by family with more than 4 sensitive ASVs
+# colnames(sensitive_starch_family) <- c("family", "frequency")
+# pander(sensitive_starch_family, caption="Frequent families sensitive to starch  in sand")
+
+```
+
+\pagebreak
+
+```{r sand: common frequent sensitive taxa, echo=F, message=F, warning=F}
+
+#sensitive taxonomy frequent in microplastic, macroplastic and starch
+sensitive_common_phylum <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("phylum")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_phylum)[2] <- "phylum"
+sensitive_common_phylum <- as.data.frame(sort(table(sensitive_common_phylum$phylum),decreasing = T)) %>% filter(Freq >= 5) #filter by phylum with more than 4 sensitive ASVs
+colnames(sensitive_common_phylum) <- c("phylum", "frequency")
+pander(sensitive_common_phylum, caption="Frequent phyla sensitive to all plastic treatments  in sand")
+
+#class
+sensitive_common_class <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("class")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_class)[2] <- "class"
+sensitive_common_class <- as.data.frame(sort(table(sensitive_common_class$class),decreasing = T)) %>% filter(Freq >= 5) #filter by class with more than 4 sensitive ASVs
+colnames(sensitive_common_class) <- c("class", "frequency")
+pander(sensitive_common_class, caption="Frequent classes sensitive to all plastic treatments in sand")
+
+#family
+sensitive_common_family <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV), names_from = "Plastic", values_from = c("family")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_family)[2] <- "family"
+sensitive_common_family <- as.data.frame(sort(table(sensitive_common_family$family),decreasing = T)) %>% filter(Freq >= 5) #filter by family with more than 4 sensitive ASVs
+colnames(sensitive_common_family) <- c("family", "frequency")
+pander(sensitive_common_family, caption="Frequent families sensitive to all plastic treatments in sand")
+
+```
+
+\pagebreak
+
+### Phylogenetic tree
+
+We plot a phylogenetic tree with all ASVs tested for sensitivity and label with the rings around the tree if they are sensitive to microplastic, macroplastic and starch.
+
+\vspace{5mm}
+
+```{r sand: subset sequences for tree, echo=F, message=F, warning=F}
+
+#import seqs
+seqs <- Biostrings::readDNAStringSet("../01_dadapipe/4_output/bacteria_ASV/ASV100/bacteria_SEQ100.fasta")
+seqs <- as.data.frame(seqs); colnames(seqs) <- "seqs"
+
+#subset for tree
+tested_ASVs_sand <- unique(summ$ASV)
+seqs_sand <- seqs[rownames(seqs) %in% tested_ASVs_sand,,drop=F]
+seqs_sand <- data.frame(name=rownames(seqs_sand), seq=seqs_sand$seqs)
+rownames(seqs_sand) <- seqs_sand$name
+
+#export as fasta file
+#dir.create("../03_build_tree/sand",recursive = T)
+#ampir::df_to_faa(seqs_sand, "../03_build_tree/sand/sequences_sand.fasta")
+
+########
+#in bash
+#cd ../03_build_tree/sand/sequences_sand
+#mafft-linsi sequences_sand.fasta > sequences_sand_aligned.fasta #align sequences
+#iqtree -s sequences_sand_aligned.fasta #build tree
+########
+```
+
+```{r sand: show taxa tree, echo=F, message=F, warning=F}
+
+#set to true at the beginning of script if files were computed
+if(treefiles){
+
+  #read tree
+  tree_file <- "/Users/j.waechli/Desktop/Jan_Waelchli/01_Projects/01_Support/Robin/Microbiome_BE13/03_build_tree/sand/sequences_sand_aligned.fasta.treefile"
+  tree <- read.tree(tree_file)
+  
+  #subset summary and sort them
+  summary_taxa <- unique(summary[,c("ASV", "phylum","class","family")])
+  summary_taxa <- summary_taxa[summary_taxa$ASV %in% tested_ASVs_sand,]
+  rownames(summary_taxa) <- summary_taxa$ASV
+  summary_taxa <- summary_taxa[tree[["tip.label"]],]
+  
+  
+  #colorstring
+  summary_taxa$labels <- NA
+  summary_taxa$cols <- NA
+  
+  for(a in summary_taxa$ASV){
+    summary_taxa$labels[summary_taxa$ASV == a] <- as.character(TAX$labels[TAX$ASV_ID == a][1])
+    summary_taxa$cols[summary_taxa$ASV == a] <- as.character(TAX$cols_phyla[TAX$ASV_ID == a][1])
+  }
+  
+  high_abundant_phyla <- as.character(unique(PHYSEQ_phyla_melt$labels_2))
+  summary_taxa$labels_2 <- summary_taxa$labels
+  summary_taxa$labels_2[!(summary_taxa$labels %in% high_abundant_phyla)] <- "Low abundant phyla"
+  summary_taxa$cols2 <- summary_taxa$cols
+  summary_taxa$cols2[summary_taxa$labels_2 == "Low abundant phyla"] <- "lightgrey"
+  
+  #extend taxa string to the length of tree edges (needs for each edge a value but uses only the number of tips)
+  phylum <- c(summary_taxa$labels_2,rep(NA,(length(tree[["edge.length"]])-length(summary_taxa$labels_2))+1))
+  cols2 <- summary_taxa$cols2
+  names(cols2) <- summary_taxa$labels_2
+  cols2_long <- c(cols2,rep("white",(length(tree[["edge.length"]])-length(cols2))+1))
+  
+  #plot genetic tree with phyla
+  p1 <- ggtree(tree, layout = "fan", branch.length = "none")+
+    geom_tippoint(aes(color=phylum), size=2)+
+    scale_color_manual(values=cols2_long)+
+    new_scale_color()
+  
+  
+  #for saving
+  phylotree_sand <- list(plot=p1, phylum=phylum, colstring=cols2_long)
+  
+  
+  #plot microplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "microplastic") & summary$ASV %in% rownames(seqs_sand),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_microplastic) / (df$means_CTRL + df$means_microplastic)) *100
+  df$abu_trt_microplastic <- factor(df$abu_trt_microplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p2 <- p1 + geom_rect(aes(xmin = 78, xmax = 115, ymin = 1, ymax = nrow(df)), fill="darkolivegreen2")+ #background color
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_microplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list()) +
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #plot macroplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "macroplastic") & summary$ASV %in% rownames(seqs_sand),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_macroplastic) / (df$means_CTRL + df$means_macroplastic)) *100
+  df$abu_trt_macroplastic <- factor(df$abu_trt_macroplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p3 <- p2 + geom_rect(aes(xmin = 115, xmax = 155, ymin = 1, ymax = nrow(df)), fill="darkseagreen4")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_macroplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  
+  #plot starch ring
+  df <- summary[summary$Plastic %in% c("CTRL", "starch") & summary$ASV %in% rownames(seqs_sand),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_starch) / (df$means_CTRL + df$means_starch)) *100
+  df$abu_trt_starch <- factor(df$abu_trt_starch, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p4 <- p3 + geom_rect(aes(xmin = 155, xmax = 188, ymin = 1, ymax = nrow(df)), fill="gold")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_starch),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #pseudo plot for legend
+  library(ggnewscale)
+  df <- data.frame(Phylum=names(cols2), Plastic=c(rep("microplastic",length(cols2)-2),"macroplastic","starch"),
+                   Sensitivity=c(rep("higher in CTRL",length(cols2)-2),"unchanged","lower in CTRL"))
+  df$Sensitivity <- factor(df$Sensitivity, levels=c("higher in CTRL", "unchanged","lower in CTRL"))
+  legend_plot <- ggplot(df,aes(1,1))+
+                    geom_bar(stat="identity", aes(fill=Plastic))+
+                    geom_point(pch=15, size=6, aes(col=Phylum))+
+                    scale_color_manual(values=cols2)+
+                    scale_fill_manual(values=level_cols_Plastic[c(1,2,4)], name = "Plastic")+
+                    theme_bw()+
+                    new_scale_color() +
+                    geom_point(pch=15, size=6, aes(col=Sensitivity))+
+                    scale_color_manual(values=c("tomato", "grey80", "darkcyan"))
+                    #guides(size = guide_legend(order = 1), color = guide_legend(order = 2))
+  
+  #add plot and legend
+  phyla_plot <- plot_grid(p4 + theme(legend.position="none"), 
+                          get_legend(legend_plot), nrow=1,rel_widths=c(1, .3))
+  phyla_plot
+  
+}
+
+```
+
+\vspace{5mm}
+
+**Conclusion differential abundance analysis:** *A huge part of the microbiome is shaped by adding plastic to the soil. Microplastic, macroplastic and starch has a similar effect. Bacteria reacting to the plastic are phylogenetic diverse.*
+
+\pagebreak
+
+## Relative abundance in root sand
+
+We check for each ASV if it is sensitive or not to the different plastics. We show how many sensitive ASVs we have found for each plastic-treatment. Then, we plot the top 50 most abundant ASVs and label significant differences in red. Down below we show the phyla and class of those top abundant sensitive ASVs. 
+
+```{r root_sand: compute DAA, echo=F, message=F, warning=F}
+
+#microplastic
+
+#subset to microplastic
+DESIGN_root_sand_microplastic <-  DESIGN_root_sand[(DESIGN_root_sand$Plastic %in% c("CTRL", "microplastic") & DESIGN_root_sand$Plant==T),]
+DAT_root_sand_microplastic <- DAT_root_sand[colnames(DAT_root_sand) %in% DESIGN_root_sand_microplastic$AccessArray_barcode] #for DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_root_sand_microplastic, DAT_root_sand_microplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_root_sand_microplastic <- temp[[1]]; rm(temp)
+sens_ASVs_root_sand_microplastic <- summ_root_sand_microplastic$ASV[summ_root_sand_microplastic$score>2]
+
+
+#macroplastic
+
+#subset to macroplastic
+DESIGN_root_sand_macroplastic <-  DESIGN_root_sand[(DESIGN_root_sand$Plastic %in% c("CTRL", "macroplastic") & DESIGN_root_sand$Plant==T),]
+DAT_root_sand_macroplastic <- DAT_root_sand[colnames(DAT_root_sand) %in% DESIGN_root_sand_macroplastic$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_root_sand_macroplastic, DAT_root_sand_macroplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_root_sand_macroplastic <- temp[[1]]; rm(temp)
+sens_ASVs_root_sand_macroplastic <- summ_root_sand_macroplastic$ASV[summ_root_sand_macroplastic$score>2]
+
+
+#starch
+
+#subset to starch
+DESIGN_root_sand_starch <-  DESIGN_root_sand[(DESIGN_root_sand$Plastic %in% c("CTRL", "starch") & DESIGN_root_sand$Plant==T),]
+DAT_root_sand_starch <- DAT_root_sand[colnames(DAT_root_sand) %in% DESIGN_root_sand_starch$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_root_sand_starch, DAT_root_sand_starch, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_root_sand_starch <- temp[[1]]; rm(temp)
+sens_ASVs_root_sand_starch <- summ_root_sand_starch$ASV[summ_root_sand_starch$score>2]
+
+```
+
+
+```{r root_sand: summarise DAA, echo=F, message=F, warning=F}
+
+#relative abundance
+DAT_root_sand_rare <- as.data.frame(DAT_root_sand_rare)
+DAT_root_sand_rare <- (DAT_root_sand_rare/colSums(DAT_root_sand_rare)) * 100
+DAT_root_sand_rare <- as.data.frame(DAT_root_sand_rare[ rowSums(DAT_root_sand_rare) > 0,])
+
+#means & standard error
+means <- aggregate(t(DAT_root_sand_rare), list(DESIGN_root_sand$Plastic), mean) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+se <- aggregate(t(DAT_root_sand_rare), list(DESIGN_root_sand$Plastic), se) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+#sort by abundance of CTRL samples
+order <- order(-means$CTRL)
+means <- means[order,]
+se <- se[order,]
+
+summary <- pivot_longer(means, !(ASV), names_to="Plastic", values_to="means")
+summary$se <- pivot_longer(se, !(ASV), names_to="Plastic", values_to="se") %>% pull(se)
+summary$Plastic <- factor(summary$Plastic, levels=c("CTRL", "microplastic", "macroplastic", "starch"))
+summary$ASV <- factor(summary$ASV, levels=unique(summary$ASV)) #keep the sorted order of ASVs
+
+#add score
+#score
+summ_root_sand_microplastic$plastic <- "microplastic"
+summ_root_sand_macroplastic$plastic <- "macroplastic"
+summ_root_sand_starch$plastic <- "starch"
+summ <- rbind(summ_root_sand_microplastic, summ_root_sand_macroplastic, summ_root_sand_starch)
+
+#get score
+summary$score <- 0
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    score <- summ %>% filter(plastic == p) %>% filter(ASV == a) %>% pull(score)
+    if(length(score)==1){summary$score[(summary$Plastic==p & summary$ASV==a)] <- score}
+  }}
+
+#add if different abundant (score > 2)
+summary$sensitive <- ifelse(summary$score > 2, "sensitive", "not_sensitive")
+summary$sensitive <- as.factor(summary$sensitive)
+
+#add abundace in trt compared to ctrl
+summary$abu_trt <- "unchanged"
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    mean_ctrl <- summary$means[(summary$ASV==a) & (summary$Plastic=="CTRL")]
+    mean_trt <- summary$means[(summary$ASV==a) & (summary$Plastic==p)]
+    abu_sens <- summary$sensitive[(summary$ASV==a) & (summary$Plastic==p)]
+    if(abu_sens == "sensitive"){
+      trt_dir <- ifelse(mean_ctrl > mean_trt, "higher in CTRL", "lower in CTRL")
+      summary$abu_trt[(summary$ASV==a) & (summary$Plastic==p)] <- trt_dir
+      }
+  }
+}
+
+#add phyla and class
+summary$phylum <- NA
+summary$class <- NA
+summary$order <- NA
+summary$family <- NA
+summary$genus <- NA
+for(a in unique(summary$ASV)){
+  if(a %in% TAX$ASV_ID){
+    summary$phylum[summary$ASV == a] <- as.character(TAX$phylum[TAX$ASV_ID == a])
+    summary$class[summary$ASV == a] <- as.character(TAX$class[TAX$ASV_ID == a])
+    summary$order[summary$ASV == a] <- as.character(TAX$order[TAX$ASV_ID == a])
+    summary$family[summary$ASV == a] <- as.character(TAX$family[TAX$ASV_ID == a])
+    summary$genus[summary$ASV == a] <- as.character(TAX$genus[TAX$ASV_ID == a])
+  }
+  else{
+    summary$phylum[summary$ASV == a] <- "unassigned"
+    summary$class[summary$ASV == a] <- "unassigned"
+    summary$order[summary$ASV == a] <- "unassigned"
+    summary$family[summary$ASV == a] <- "unassigned"
+    summary$genus[summary$ASV == a] <- "unassigned"
+  }
+}
+
+summary_root_sand <- summary
+
+```
+
+### Different abundant ASVs
+
+We show how many ASVs has been changed due to the plastic treatments how much of the relative abundance belongs to those sensitive ASVs.
+
+```{r root_sand: show DAA microplastic, echo=F, message=F, warning=F}
+
+#pander how many ASVs are sensitive
+
+#microplastic
+summary_root_sand_microplastic <- summary[(summary$Plastic %in% c("CTRL", "microplastic")) & (summary$ASV %in% summ_root_sand_microplastic$ASV),]
+changed_abu_root_sand_microplastic <- sum(summary_root_sand_microplastic$means[summary_root_sand_microplastic$Plastic=="microplastic" &
+                                      summary_root_sand_microplastic$sensitive=="sensitive"])
+changed_abu_root_sand_microplastic <- paste0(round(changed_abu_root_sand_microplastic,2), "%")
+sens_root_sand_microplastic <- table(summary_root_sand_microplastic$abu_trt[summary_root_sand_microplastic$Plastic == "microplastic"])
+pander(sens_root_sand_microplastic[c(2,3,1)], caption = "microplastic effect in root_sand")
+
+```
+
+`r changed_abu_root_sand_microplastic` of the bacterial community in root was changed in abundance due to microplastic.
+
+```{r root_sand: show DAA macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+summary_root_sand_macroplastic <- summary[(summary$Plastic %in% c("CTRL", "macroplastic")) & (summary$ASV %in% summ_root_sand_macroplastic$ASV),]
+changed_abu_root_sand_macroplastic <- sum(summary_root_sand_macroplastic$means[summary_root_sand_macroplastic$Plastic=="macroplastic" &
+                                      summary_root_sand_macroplastic$sensitive=="sensitive"])
+changed_abu_root_sand_macroplastic <- paste0(round(changed_abu_root_sand_macroplastic,2), "%")
+sens_root_sand_macroplastic <- table(summary_root_sand_macroplastic$abu_trt[summary_root_sand_macroplastic$Plastic == "macroplastic"])
+pander(sens_root_sand_macroplastic[c(2,3,1)], caption = "macroplastic effect in root_sand")
+
+```
+
+`r changed_abu_root_sand_macroplastic` of the bacterial community in root was changed in abundance due to macroplastic.
+
+```{r root_sand: show DAA starch, echo=F, message=F, warning=F}
+
+#starch
+summary_root_sand_starch <- summary[(summary$Plastic %in% c("CTRL", "starch")) & (summary$ASV %in% summ_root_sand_starch$ASV),]
+changed_abu_root_sand_starch <- sum(summary_root_sand_starch$means[summary_root_sand_starch$Plastic=="starch" &
+                                      summary_root_sand_starch$sensitive=="sensitive"])
+changed_abu_root_sand_starch <- paste0(round(changed_abu_root_sand_starch,2), "%")
+sens_root_sand_starch <- table(summary_root_sand_starch$abu_trt[summary_root_sand_starch$Plastic == "starch"])
+pander(sens_root_sand_starch[c(2,3,1)], caption = "starch effect in root_sand")
+
+```
+
+`r changed_abu_root_sand_starch` of the bacterial community in root_sand was changed in abundance due to starch.
+
+\pagebreak
+
+### Relative abundance plot
+
+We plot the 50 top abundant ASVs (in controls) and label plastic sensitive ASVs in red.
+
+\vspace{5mm}
+
+```{r root_sand: relative abundance plot, echo=F, message=F, warning=F}
+
+#plot the 50 most abundant ASVs
+
+#set threshold for top abundant
+top_abu <- 50
+
+#plot
+ggplot(summary[1:(top_abu*4),], aes(ASV, means, fill=Plastic, col=sensitive))+
+  geom_bar(stat="identity", position="dodge", width = 0.8, size=0.2)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, size=6))+
+  scale_color_manual(values=c(NA, "red"))+
+  scale_fill_manual(values=level_cols_Plastic)+
+  geom_errorbar(aes(ymin=means, ymax=means+se/2), width=.3, position=position_dodge(.8))
+  #geom_text(aes(label = score, y=-0.2), position = position_dodge(.8), size=1)
+
+```
+
+\pagebreak
+
+### Taxonomy of abundant ASVs
+
+We show the taxonomy of top abundant ASVs which are plastic sensitive.
+
+```{r root_sand: relative abundance taxa microplastic, echo=F, message=F, warning=F}
+
+#microplastic
+
+#sensitive ASVs from top 50
+top_sensitive_microplastic <- pivot_wider(summary_root_sand_microplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_microplastic <- top_sensitive_microplastic[1:top_abu,] #top abundant
+top_sensitive_microplastic <- top_sensitive_microplastic[top_sensitive_microplastic$sensitive_microplastic =="sensitive",] #sensitive
+top_sensitive_microplastic <- top_sensitive_microplastic[,colnames(top_sensitive_microplastic) %in%
+                                                         c("ASV","means_CTRL","means_microplastic", "phylum", "class")] #column to pander
+top_sensitive_microplastic$means_CTRL <- paste0(round(top_sensitive_microplastic$means_CTRL,2),"%")
+top_sensitive_microplastic$means_microplastic <- paste0(round(top_sensitive_microplastic$means_microplastic,2),"%")
+colnames(top_sensitive_microplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_microplastic, caption="Top abundant ASVs sensitive to microplastic in root_sand")
+
+```
+
+\pagebreak
+
+```{r root_sand: relative abundance taxa macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+
+#sensitive ASVs from top 50
+top_sensitive_macroplastic <- pivot_wider(summary_root_sand_macroplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_macroplastic <- top_sensitive_macroplastic[1:top_abu,] #top abundant
+top_sensitive_macroplastic <- top_sensitive_macroplastic[top_sensitive_macroplastic$sensitive_macroplastic =="sensitive",] #sensitive
+top_sensitive_macroplastic <- top_sensitive_macroplastic[,colnames(top_sensitive_macroplastic) %in%
+                                                         c("ASV","means_CTRL","means_macroplastic", "phylum", "class")] #column to pander
+top_sensitive_macroplastic$means_CTRL <- paste0(round(top_sensitive_macroplastic$means_CTRL,2),"%")
+top_sensitive_macroplastic$means_macroplastic <- paste0(round(top_sensitive_macroplastic$means_macroplastic,2),"%")
+colnames(top_sensitive_macroplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_macroplastic, caption="Top abundant ASVs sensitive to macroplastic in root_sand")
+
+```
+
+\pagebreak
+
+```{r root_sand: relative abundance taxa starch, echo=F, message=F, warning=F}
+
+#starch
+
+#sensitive ASVs from top 50
+top_sensitive_starch <- pivot_wider(summary_root_sand_starch,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_starch <- top_sensitive_starch[1:top_abu,] #top abundant
+top_sensitive_starch <- top_sensitive_starch[top_sensitive_starch$sensitive_starch =="sensitive",] #sensitive
+top_sensitive_starch <- top_sensitive_starch[,colnames(top_sensitive_starch) %in%
+                                                         c("ASV","means_CTRL","means_starch", "phylum", "class")] #column to pander
+top_sensitive_starch$means_CTRL <- paste0(round(top_sensitive_starch$means_CTRL,2),"%")
+top_sensitive_starch$means_starch <- paste0(round(top_sensitive_starch$means_starch,2),"%")
+colnames(top_sensitive_starch)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_starch, caption="Top abundant ASVs sensitive to starch in root_sand")
+
+```
+
+\pagebreak
+
+### Sensitive Taxonomies
+
+We plot how many ASVs are sensitive to multiple plastic treatments and show frequent phyla, classes and families which are sensitive to all three plastic treatments.
+
+\vspace{5mm}
+
+```{r root_sand: Venn plot, echo=F, message=F, warning=F}
+
+ggvenn(list(microplastic=summary_root_sand_microplastic$ASV[summary_root_sand_microplastic$sensitive=="sensitive"],
+            macroplastic=summary_root_sand_macroplastic$ASV[summary_root_sand_macroplastic$sensitive=="sensitive"],
+            starch=summary_root_sand_starch$ASV[summary_root_sand_starch$sensitive=="sensitive"]),
+  fill_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  stroke_size = 0.5, set_name_size = 5, 
+  #set_name_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  show_percentage = F
+  )+
+  ggtitle("root_sand: Sensitive bacterial ASVs in root_sand")
+
+```
+
+\pagebreak
+
+```{r root_sand: common frequent sensitive taxa, echo=F, message=F, warning=F}
+
+#sensitive taxonomy frequent in microplastic, macroplastic and starch
+sensitive_common_phylum <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("phylum")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_phylum)[2] <- "phylum"
+sensitive_common_phylum <- as.data.frame(sort(table(sensitive_common_phylum$phylum),decreasing = T)) %>% filter(Freq >= 5) #filter by phylum with more than 4 sensitive ASVs
+colnames(sensitive_common_phylum) <- c("phylum", "frequency")
+pander(sensitive_common_phylum, caption="Frequent phyla sensitive to all plastic treatments  in root_sand")
+
+#class
+sensitive_common_class <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("class")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_class)[2] <- "class"
+sensitive_common_class <- as.data.frame(sort(table(sensitive_common_class$class),decreasing = T)) %>% filter(Freq >= 5) #filter by class with more than 4 sensitive ASVs
+colnames(sensitive_common_class) <- c("class", "frequency")
+pander(sensitive_common_class, caption="Frequent classes sensitive to all plastic treatments in root_sand")
+
+#family
+sensitive_common_family <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV), names_from = "Plastic", values_from = c("family")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_family)[2] <- "family"
+sensitive_common_family <- as.data.frame(sort(table(sensitive_common_family$family),decreasing = T)) %>% filter(Freq >= 5) #filter by family with more than 4 sensitive ASVs
+colnames(sensitive_common_family) <- c("family", "frequency")
+pander(sensitive_common_family, caption="Frequent families sensitive to all plastic treatments in root_sand")
+
+```
+
+\pagebreak
+
+### Phylogenetic tree
+
+We plot a phylogenetic tree with all ASVs tested for sensitivity and label with the rings around the tree if they are sensitive to microplastic, macroplastic and starch.
+
+\vspace{5mm}
+
+```{r root_sand: subset sequences for tree, echo=F, message=F, warning=F}
+
+#import seqs
+seqs <- Biostrings::readDNAStringSet("../01_dadapipe/4_output/bacteria_ASV/ASV100/bacteria_SEQ100.fasta")
+seqs <- as.data.frame(seqs); colnames(seqs) <- "seqs"
+
+#subset for tree
+tested_ASVs_root_sand <- unique(summ$ASV)
+seqs_root_sand <- seqs[rownames(seqs) %in% tested_ASVs_root_sand,,drop=F]
+seqs_root_sand <- data.frame(name=rownames(seqs_root_sand), seq=seqs_root_sand$seqs)
+rownames(seqs_root_sand) <- seqs_root_sand$name
+
+
+#export as fasta file
+#dir.create("../03_build_tree/root_sand",recursive = T)
+#ampir::df_to_faa(seqs_root_sand, "../03_build_tree/root_sand/sequences_root_sand.fasta")
+
+########
+#in bash
+#cd ../03_build_tree/root_sand/sequences_root_sand
+#mafft-linsi sequences_root_sand.fasta > sequences_root_sand_aligned.fasta #align sequences
+#iqtree -s sequences_root_sand_aligned.fasta #build tree
+########
+```
+
+```{r root_sand: show taxa tree, echo=F, message=F, warning=F}
+
+#set to true at the beginning of script if files were computed
+if(treefiles){
+
+  #read tree
+  tree_file <- "/Users/j.waechli/Desktop/Jan_Waelchli/01_Projects/01_Support/Robin/Microbiome_BE13/03_build_tree/root_sand/sequences_root_sand_aligned.fasta.treefile"
+  tree <- read.tree(tree_file)
+  
+  #subset summary and sort them
+  summary_taxa <- unique(summary[,c("ASV", "phylum","class","family")])
+  summary_taxa <- summary_taxa[summary_taxa$ASV %in% tested_ASVs_root_sand,]
+  rownames(summary_taxa) <- summary_taxa$ASV
+  summary_taxa <- summary_taxa[tree[["tip.label"]],]
+  
+  
+  #colorstring
+  summary_taxa$labels <- NA
+  summary_taxa$cols <- NA
+  
+  for(a in summary_taxa$ASV){
+    summary_taxa$labels[summary_taxa$ASV == a] <- as.character(TAX$labels[TAX$ASV_ID == a][1])
+    summary_taxa$cols[summary_taxa$ASV == a] <- as.character(TAX$cols_phyla[TAX$ASV_ID == a][1])
+  }
+  
+  high_abundant_phyla <- as.character(unique(PHYSEQ_phyla_melt$labels_2))
+  summary_taxa$labels_2 <- summary_taxa$labels
+  summary_taxa$labels_2[!(summary_taxa$labels %in% high_abundant_phyla)] <- "Low abundant phyla"
+  summary_taxa$cols2 <- summary_taxa$cols
+  summary_taxa$cols2[summary_taxa$labels_2 == "Low abundant phyla"] <- "lightgrey"
+  
+  #extend taxa string to the length of tree edges (needs for each edge a value but uses only the number of tips)
+  phylum <- c(summary_taxa$labels_2,rep(NA,(length(tree[["edge.length"]])-length(summary_taxa$labels_2))+1))
+  cols2 <- summary_taxa$cols2
+  names(cols2) <- summary_taxa$labels_2
+  cols2_long <- c(cols2,rep("white",(length(tree[["edge.length"]])-length(cols2))+1))
+  
+  #plot genetic tree with phyla
+  p1 <- ggtree(tree, layout = "fan", branch.length = "none")+
+    geom_tippoint(aes(color=phylum), size=2)+
+    scale_color_manual(values=cols2_long)+
+    new_scale_color()
+  
+  
+  #for saving
+  phylotree_root_sand <- list(plot=p1, phylum=phylum, colstring=cols2_long)
+  
+  
+  #plot microplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "microplastic") & summary$ASV %in% rownames(seqs_root_sand),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_microplastic) / (df$means_CTRL + df$means_microplastic)) *100
+  df$abu_trt_microplastic <- factor(df$abu_trt_microplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p2 <- p1 + geom_rect(aes(xmin = 45, xmax = 67, ymin = 1, ymax = nrow(df)), fill="darkolivegreen2")+ #background color
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_microplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list()) +
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #plot macroplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "macroplastic") & summary$ASV %in% rownames(seqs_root_sand),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_macroplastic) / (df$means_CTRL + df$means_macroplastic)) *100
+  df$abu_trt_macroplastic <- factor(df$abu_trt_macroplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p3 <- p2 + geom_rect(aes(xmin = 67, xmax = 88, ymin = 1, ymax = nrow(df)), fill="darkseagreen4")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_macroplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  
+  #plot starch ring
+  df <- summary[summary$Plastic %in% c("CTRL", "starch") & summary$ASV %in% rownames(seqs_root_sand),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_starch) / (df$means_CTRL + df$means_starch)) *100
+  df$abu_trt_starch <- factor(df$abu_trt_starch, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p4 <- p3 + geom_rect(aes(xmin = 88, xmax = 110, ymin = 1, ymax = nrow(df)), fill="gold")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_starch),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #pseudo plot for legend
+  library(ggnewscale)
+  df <- data.frame(Phylum=names(cols2), Plastic=c(rep("microplastic",length(cols2)-2),"macroplastic","starch"),
+                   Sensitivity=c(rep("higher in CTRL",length(cols2)-2),"unchanged","lower in CTRL"))
+  df$Sensitivity <- factor(df$Sensitivity, levels=c("higher in CTRL", "unchanged","lower in CTRL"))
+  legend_plot <- ggplot(df,aes(1,1))+
+                    geom_bar(stat="identity", aes(fill=Plastic))+
+                    geom_point(pch=15, size=6, aes(col=Phylum))+
+                    scale_color_manual(values=cols2)+
+                    scale_fill_manual(values=level_cols_Plastic[c(1,2,4)], name = "Plastic")+
+                    theme_bw()+
+                    new_scale_color() +
+                    geom_point(pch=15, size=6, aes(col=Sensitivity))+
+                    scale_color_manual(values=c("tomato", "grey80", "darkcyan"))
+                    #guides(size = guide_legend(order = 1), color = guide_legend(order = 2))
+  
+  #add plot and legend
+  phyla_plot <- plot_grid(p4 + theme(legend.position="none"), 
+                          get_legend(legend_plot), nrow=1,rel_widths=c(1, .3))
+  phyla_plot
+  
+}
+
+```
+
+\pagebreak
+
+## Relative abundance in root soil
+
+We check for each ASV if it is sensitive or not to the different plastics. We show how many sensitive ASVs we have found for each plastic-treatment. Then, we plot the top 50 most abundant ASVs and label significant differences in red. Down below we show the phyla and class of those top abundant sensitive ASVs. 
+
+```{r root_soil: compute DAA, echo=F, message=F, warning=F}
+
+#microplastic
+
+#subset to microplastic
+DESIGN_root_soil_microplastic <-  DESIGN_root_soil[(DESIGN_root_soil$Plastic %in% c("CTRL", "microplastic") & DESIGN_root_soil$Plant==T),]
+DAT_root_soil_microplastic <- DAT_root_soil[colnames(DAT_root_soil) %in% DESIGN_root_soil_microplastic$AccessArray_barcode] #for DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_root_soil_microplastic, DAT_root_soil_microplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_root_soil_microplastic <- temp[[1]]; rm(temp)
+sens_ASVs_root_soil_microplastic <- summ_root_soil_microplastic$ASV[summ_root_soil_microplastic$score>2]
+
+
+#macroplastic
+
+#subset to macroplastic
+DESIGN_root_soil_macroplastic <-  DESIGN_root_soil[(DESIGN_root_soil$Plastic %in% c("CTRL", "macroplastic") & DESIGN_root_soil$Plant==T),]
+DAT_root_soil_macroplastic <- DAT_root_soil[colnames(DAT_root_soil) %in% DESIGN_root_soil_macroplastic$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_root_soil_macroplastic, DAT_root_soil_macroplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_root_soil_macroplastic <- temp[[1]]; rm(temp)
+sens_ASVs_root_soil_macroplastic <- summ_root_soil_macroplastic$ASV[summ_root_soil_macroplastic$score>2]
+
+
+#starch
+
+#subset to starch
+DESIGN_root_soil_starch <-  DESIGN_root_soil[(DESIGN_root_soil$Plastic %in% c("CTRL", "starch") & DESIGN_root_soil$Plant==T),]
+DAT_root_soil_starch <- DAT_root_soil[colnames(DAT_root_soil) %in% DESIGN_root_soil_starch$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_root_soil_starch, DAT_root_soil_starch, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_root_soil_starch <- temp[[1]]; rm(temp)
+sens_ASVs_root_soil_starch <- summ_root_soil_starch$ASV[summ_root_soil_starch$score>2]
+
+```
+
+
+```{r root_soil: summarise DAA, echo=F, message=F, warning=F}
+
+#relative abundance
+DAT_root_soil_rare <- as.data.frame(DAT_root_soil_rare)
+DAT_root_soil_rare <- (DAT_root_soil_rare/colSums(DAT_root_soil_rare)) * 100
+DAT_root_soil_rare <- as.data.frame(DAT_root_soil_rare[ rowSums(DAT_root_soil_rare) > 0,])
+
+#means & standard error
+means <- aggregate(t(DAT_root_soil_rare), list(DESIGN_root_soil$Plastic), mean) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+se <- aggregate(t(DAT_root_soil_rare), list(DESIGN_root_soil$Plastic), se) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+#sort by abundance of CTRL samples
+order <- order(-means$CTRL)
+means <- means[order,]
+se <- se[order,]
+
+summary <- pivot_longer(means, !(ASV), names_to="Plastic", values_to="means")
+summary$se <- pivot_longer(se, !(ASV), names_to="Plastic", values_to="se") %>% pull(se)
+summary$Plastic <- factor(summary$Plastic, levels=c("CTRL", "microplastic", "macroplastic", "starch"))
+summary$ASV <- factor(summary$ASV, levels=unique(summary$ASV)) #keep the sorted order of ASVs
+
+#add score
+#score
+summ_root_soil_microplastic$plastic <- "microplastic"
+summ_root_soil_macroplastic$plastic <- "macroplastic"
+summ_root_soil_starch$plastic <- "starch"
+summ <- rbind(summ_root_soil_microplastic, summ_root_soil_macroplastic, summ_root_soil_starch)
+
+#get score
+summary$score <- 0
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    score <- summ %>% filter(plastic == p) %>% filter(ASV == a) %>% pull(score)
+    if(length(score)==1){summary$score[(summary$Plastic==p & summary$ASV==a)] <- score}
+  }}
+
+#add if different abundant (score > 2)
+summary$sensitive <- ifelse(summary$score > 2, "sensitive", "not_sensitive")
+summary$sensitive <- as.factor(summary$sensitive)
+
+#add abundace in trt compared to ctrl
+summary$abu_trt <- "unchanged"
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    mean_ctrl <- summary$means[(summary$ASV==a) & (summary$Plastic=="CTRL")]
+    mean_trt <- summary$means[(summary$ASV==a) & (summary$Plastic==p)]
+    abu_sens <- summary$sensitive[(summary$ASV==a) & (summary$Plastic==p)]
+    if(abu_sens == "sensitive"){
+      trt_dir <- ifelse(mean_ctrl > mean_trt, "higher in CTRL", "lower in CTRL")
+      summary$abu_trt[(summary$ASV==a) & (summary$Plastic==p)] <- trt_dir
+      }
+  }
+}
+
+#add phyla and class
+summary$phylum <- NA
+summary$class <- NA
+summary$order <- NA
+summary$family <- NA
+summary$genus <- NA
+for(a in unique(summary$ASV)){
+  if(a %in% TAX$ASV_ID){
+    summary$phylum[summary$ASV == a] <- as.character(TAX$phylum[TAX$ASV_ID == a])
+    summary$class[summary$ASV == a] <- as.character(TAX$class[TAX$ASV_ID == a])
+    summary$order[summary$ASV == a] <- as.character(TAX$order[TAX$ASV_ID == a])
+    summary$family[summary$ASV == a] <- as.character(TAX$family[TAX$ASV_ID == a])
+    summary$genus[summary$ASV == a] <- as.character(TAX$genus[TAX$ASV_ID == a])
+  }
+  else{
+    summary$phylum[summary$ASV == a] <- "unassigned"
+    summary$class[summary$ASV == a] <- "unassigned"
+    summary$order[summary$ASV == a] <- "unassigned"
+    summary$family[summary$ASV == a] <- "unassigned"
+    summary$genus[summary$ASV == a] <- "unassigned"
+  }
+}
+
+summary_root_soil <- summary
+
+```
+
+### Different abundant ASVs
+
+We show how many ASVs has been changed due to the plastic treatments how much of the relative abundance belongs to those sensitive ASVs.
+
+```{r root_soil: show DAA microplastic, echo=F, message=F, warning=F}
+
+#pander how many ASVs are sensitive
+
+#microplastic
+summary_root_soil_microplastic <- summary[(summary$Plastic %in% c("CTRL", "microplastic")) & (summary$ASV %in% summ_root_soil_microplastic$ASV),]
+changed_abu_root_soil_microplastic <- sum(summary_root_soil_microplastic$means[summary_root_soil_microplastic$Plastic=="microplastic" &
+                                      summary_root_soil_microplastic$sensitive=="sensitive"])
+changed_abu_root_soil_microplastic <- paste0(round(changed_abu_root_soil_microplastic,2), "%")
+sens_root_soil_microplastic <- table(summary_root_soil_microplastic$abu_trt[summary_root_soil_microplastic$Plastic == "microplastic"])
+pander(sens_root_soil_microplastic[c(2,3,1)], caption = "microplastic effect in root_soil")
+
+```
+
+`r changed_abu_root_soil_microplastic` of the bacterial community in root was changed in abundance due to microplastic.
+
+```{r root_soil: show DAA macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+summary_root_soil_macroplastic <- summary[(summary$Plastic %in% c("CTRL", "macroplastic")) & (summary$ASV %in% summ_root_soil_macroplastic$ASV),]
+changed_abu_root_soil_macroplastic <- sum(summary_root_soil_macroplastic$means[summary_root_soil_macroplastic$Plastic=="macroplastic" &
+                                      summary_root_soil_macroplastic$sensitive=="sensitive"])
+changed_abu_root_soil_macroplastic <- paste0(round(changed_abu_root_soil_macroplastic,2), "%")
+sens_root_soil_macroplastic <- table(summary_root_soil_macroplastic$abu_trt[summary_root_soil_macroplastic$Plastic == "macroplastic"])
+pander(sens_root_soil_macroplastic[c(2,3,1)], caption = "macroplastic effect in root_soil")
+
+```
+
+`r changed_abu_root_soil_macroplastic` of the bacterial community in root was changed in abundance due to macroplastic.
+
+```{r root_soil: show DAA starch, echo=F, message=F, warning=F}
+
+#starch
+summary_root_soil_starch <- summary[(summary$Plastic %in% c("CTRL", "starch")) & (summary$ASV %in% summ_root_soil_starch$ASV),]
+changed_abu_root_soil_starch <- sum(summary_root_soil_starch$means[summary_root_soil_starch$Plastic=="starch" &
+                                      summary_root_soil_starch$sensitive=="sensitive"])
+changed_abu_root_soil_starch <- paste0(round(changed_abu_root_soil_starch,2), "%")
+sens_root_soil_starch <- table(summary_root_soil_starch$abu_trt[summary_root_soil_starch$Plastic == "starch"])
+pander(sens_root_soil_starch[c(2,3,1)], caption = "starch effect in root_soil")
+
+```
+
+`r changed_abu_root_soil_starch` of the bacterial community in root_soil was changed in abundance due to starch.
+
+\pagebreak
+
+### Relative abundance plot
+
+We plot the 50 top abundant ASVs (in controls) and label plastic sensitive ASVs in red.
+
+\vspace{5mm}
+
+```{r root_soil: relative abundance plot, echo=F, message=F, warning=F}
+
+#plot the 50 most abundant ASVs
+
+#set threshold for top abundant
+top_abu <- 50
+
+#plot
+ggplot(summary[1:(top_abu*4),], aes(ASV, means, fill=Plastic, col=sensitive))+
+  geom_bar(stat="identity", position="dodge", width = 0.8, size=0.2)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, size=6))+
+  scale_color_manual(values=c(NA, "red"))+
+  scale_fill_manual(values=level_cols_Plastic)+
+  geom_errorbar(aes(ymin=means, ymax=means+se/2), width=.3, position=position_dodge(.8))
+  #geom_text(aes(label = score, y=-0.2), position = position_dodge(.8), size=1)
+
+```
+
+\pagebreak
+
+### Taxonomy of abundant ASVs
+
+We show the taxonomy of top abundant ASVs which are plastic sensitive.
+
+```{r root_soil: relative abundance taxa microplastic, echo=F, message=F, warning=F}
+
+#microplastic
+
+#sensitive ASVs from top 50
+top_sensitive_microplastic <- pivot_wider(summary_root_soil_microplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_microplastic <- top_sensitive_microplastic[1:top_abu,] #top abundant
+top_sensitive_microplastic <- top_sensitive_microplastic[top_sensitive_microplastic$sensitive_microplastic =="sensitive",] #sensitive
+top_sensitive_microplastic <- top_sensitive_microplastic[,colnames(top_sensitive_microplastic) %in%
+                                                         c("ASV","means_CTRL","means_microplastic", "phylum", "class")] #column to pander
+top_sensitive_microplastic$means_CTRL <- paste0(round(top_sensitive_microplastic$means_CTRL,2),"%")
+top_sensitive_microplastic$means_microplastic <- paste0(round(top_sensitive_microplastic$means_microplastic,2),"%")
+colnames(top_sensitive_microplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_microplastic, caption="Top abundant ASVs sensitive to microplastic in root_soil")
+
+```
+
+\pagebreak
+
+```{r root_soil: relative abundance taxa macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+
+#sensitive ASVs from top 50
+top_sensitive_macroplastic <- pivot_wider(summary_root_soil_macroplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_macroplastic <- top_sensitive_macroplastic[1:top_abu,] #top abundant
+top_sensitive_macroplastic <- top_sensitive_macroplastic[top_sensitive_macroplastic$sensitive_macroplastic =="sensitive",] #sensitive
+top_sensitive_macroplastic <- top_sensitive_macroplastic[,colnames(top_sensitive_macroplastic) %in%
+                                                         c("ASV","means_CTRL","means_macroplastic", "phylum", "class")] #column to pander
+top_sensitive_macroplastic$means_CTRL <- paste0(round(top_sensitive_macroplastic$means_CTRL,2),"%")
+top_sensitive_macroplastic$means_macroplastic <- paste0(round(top_sensitive_macroplastic$means_macroplastic,2),"%")
+colnames(top_sensitive_macroplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_macroplastic, caption="Top abundant ASVs sensitive to macroplastic in root_soil")
+
+```
+
+\pagebreak
+
+```{r root_soil: relative abundance taxa starch, echo=F, message=F, warning=F}
+
+#starch
+
+#sensitive ASVs from top 50
+top_sensitive_starch <- pivot_wider(summary_root_soil_starch,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_starch <- top_sensitive_starch[1:top_abu,] #top abundant
+top_sensitive_starch <- top_sensitive_starch[top_sensitive_starch$sensitive_starch =="sensitive",] #sensitive
+top_sensitive_starch <- top_sensitive_starch[,colnames(top_sensitive_starch) %in%
+                                                         c("ASV","means_CTRL","means_starch", "phylum", "class")] #column to pander
+top_sensitive_starch$means_CTRL <- paste0(round(top_sensitive_starch$means_CTRL,2),"%")
+top_sensitive_starch$means_starch <- paste0(round(top_sensitive_starch$means_starch,2),"%")
+colnames(top_sensitive_starch)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_starch, caption="Top abundant ASVs sensitive to starch in root_soil")
+
+```
+
+\pagebreak
+
+### Sensitive Taxonomies
+
+We plot how many ASVs are sensitive to multiple plastic treatments and show frequent phyla, classes and families which are sensitive to all three plastic treatments.
+
+\vspace{5mm}
+
+```{r root_soil: Venn plot, echo=F, message=F, warning=F}
+
+ggvenn(list(microplastic=summary_root_soil_microplastic$ASV[summary_root_soil_microplastic$sensitive=="sensitive"],
+            macroplastic=summary_root_soil_macroplastic$ASV[summary_root_soil_macroplastic$sensitive=="sensitive"],
+            starch=summary_root_soil_starch$ASV[summary_root_soil_starch$sensitive=="sensitive"]),
+  fill_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  stroke_size = 0.5, set_name_size = 5, 
+  #set_name_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  show_percentage = F
+  )+
+  ggtitle("root_soil: Sensitive bacterial ASVs in root_soil")
+
+```
+
+\pagebreak
+
+```{r root_soil: common frequent sensitive taxa, echo=F, message=F, warning=F}
+
+# #sensitive taxonomy frequent in microplastic, macroplastic and starch
+# sensitive_common_phylum <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("phylum")) %>%
+#                              na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+# colnames(sensitive_common_phylum)[2] <- "phylum"
+# sensitive_common_phylum <- as.data.frame(sort(table(sensitive_common_phylum$phylum),decreasing = T)) %>% filter(Freq >= 5) #filter by phylum with more than 4 sensitive ASVs
+# colnames(sensitive_common_phylum) <- c("phylum", "frequency")
+# pander(sensitive_common_phylum, caption="Frequent phyla sensitive to all plastic treatments  in root_soil")
+# 
+# #class
+# sensitive_common_class <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("class")) %>%
+#                              na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+# colnames(sensitive_common_class)[2] <- "class"
+# sensitive_common_class <- as.data.frame(sort(table(sensitive_common_class$class),decreasing = T)) %>% filter(Freq >= 5) #filter by class with more than 4 sensitive ASVs
+# colnames(sensitive_common_class) <- c("class", "frequency")
+# pander(sensitive_common_class, caption="Frequent classes sensitive to all plastic treatments in root_soil")
+# 
+# #family
+# sensitive_common_family <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV), names_from = "Plastic", values_from = c("family")) %>%
+#                              na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+# colnames(sensitive_common_family)[2] <- "family"
+# sensitive_common_family <- as.data.frame(sort(table(sensitive_common_family$family),decreasing = T)) %>% filter(Freq >= 5) #filter by family with more than 4 sensitive ASVs
+# colnames(sensitive_common_family) <- c("family", "frequency")
+# pander(sensitive_common_family, caption="Frequent families sensitive to all plastic treatments in root_soil")
+
+```
+
+\pagebreak
+
+### Phylogenetic tree
+
+We plot a phylogenetic tree with all ASVs tested for sensitivity and label with the rings around the tree if they are sensitive to microplastic, macroplastic and starch.
+
+\vspace{5mm}
+
+```{r root_soil: subset sequences for tree, echo=F, message=F, warning=F}
+
+#import seqs
+seqs <- Biostrings::readDNAStringSet("../01_dadapipe/4_output/bacteria_ASV/ASV100/bacteria_SEQ100.fasta")
+seqs <- as.data.frame(seqs); colnames(seqs) <- "seqs"
+
+#subset for tree
+tested_ASVs_root_soil <- unique(summ$ASV)
+seqs_root_soil <- seqs[rownames(seqs) %in% tested_ASVs_root_soil,,drop=F]
+seqs_root_soil <- data.frame(name=rownames(seqs_root_soil), seq=seqs_root_soil$seqs)
+rownames(seqs_root_soil) <- seqs_root_soil$name
+
+
+#export as fasta file
+#dir.create("../03_build_tree/root_soil",recursive = T)
+#ampir::df_to_faa(seqs_root_soil, "../03_build_tree/root_soil/sequences_root_soil.fasta")
+
+########
+#in bash
+#cd ../03_build_tree/root_soil/sequences_root_soil
+#mafft-linsi sequences_root_soil.fasta > sequences_root_soil_aligned.fasta #align sequences
+#iqtree -s sequences_root_soil_aligned.fasta #build tree
+########
+```
+
+```{r root_soil: show taxa tree, echo=F, message=F, warning=F}
+
+#set to true at the beginning of script if files were computed
+if(treefiles){
+
+  #read tree
+  tree_file <- "/Users/j.waechli/Desktop/Jan_Waelchli/01_Projects/01_Support/Robin/Microbiome_BE13/03_build_tree/root_soil/sequences_root_soil_aligned.fasta.treefile"
+  tree <- read.tree(tree_file)
+  
+  #subset summary and sort them
+  summary_taxa <- unique(summary[,c("ASV", "phylum","class","family")])
+  summary_taxa <- summary_taxa[summary_taxa$ASV %in% tested_ASVs_root_soil,]
+  rownames(summary_taxa) <- summary_taxa$ASV
+  summary_taxa <- summary_taxa[tree[["tip.label"]],]
+  
+  
+  #colorstring
+  summary_taxa$labels <- NA
+  summary_taxa$cols <- NA
+  
+  for(a in summary_taxa$ASV){
+    summary_taxa$labels[summary_taxa$ASV == a] <- as.character(TAX$labels[TAX$ASV_ID == a][1])
+    summary_taxa$cols[summary_taxa$ASV == a] <- as.character(TAX$cols_phyla[TAX$ASV_ID == a][1])
+  }
+  
+  high_abundant_phyla <- as.character(unique(PHYSEQ_phyla_melt$labels_2))
+  summary_taxa$labels_2 <- summary_taxa$labels
+  summary_taxa$labels_2[!(summary_taxa$labels %in% high_abundant_phyla)] <- "Low abundant phyla"
+  summary_taxa$cols2 <- summary_taxa$cols
+  summary_taxa$cols2[summary_taxa$labels_2 == "Low abundant phyla"] <- "lightgrey"
+  
+  #extend taxa string to the length of tree edges (needs for each edge a value but uses only the number of tips)
+  phylum <- c(summary_taxa$labels_2,rep(NA,(length(tree[["edge.length"]])-length(summary_taxa$labels_2))+1))
+  cols2 <- summary_taxa$cols2
+  names(cols2) <- summary_taxa$labels_2
+  cols2_long <- c(cols2,rep("white",(length(tree[["edge.length"]])-length(cols2))+1))
+  
+  #plot genetic tree with phyla
+  p1 <- ggtree(tree, layout = "fan", branch.length = "none")+
+    geom_tippoint(aes(color=phylum), size=2)+
+    scale_color_manual(values=cols2_long)+
+    new_scale_color()
+  
+  
+  #for saving
+  phylotree_root_soil <- list(plot=p1, phylum=phylum, colstring=cols2_long)
+  
+  
+  #plot microplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "microplastic") & summary$ASV %in% rownames(seqs_root_soil),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_microplastic) / (df$means_CTRL + df$means_microplastic)) *100
+  df$abu_trt_microplastic <- factor(df$abu_trt_microplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p2 <- p1 + geom_rect(aes(xmin = 42, xmax = 60, ymin = 1, ymax = nrow(df)), fill="darkolivegreen2")+ #background color
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_microplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list()) +
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+              #scale_fill_manual(values=c("grey80"))
+  
+  #plot macroplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "macroplastic") & summary$ASV %in% rownames(seqs_root_soil),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_macroplastic) / (df$means_CTRL + df$means_macroplastic)) *100
+  df$abu_trt_macroplastic <- factor(df$abu_trt_macroplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p3 <- p2 + geom_rect(aes(xmin = 60, xmax = 83, ymin = 1, ymax = nrow(df)), fill="darkseagreen4")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_macroplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  
+  #plot starch ring
+  df <- summary[summary$Plastic %in% c("CTRL", "starch") & summary$ASV %in% rownames(seqs_root_soil),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_starch) / (df$means_CTRL + df$means_starch)) *100
+  df$abu_trt_starch <- factor(df$abu_trt_starch, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p4 <- p3 + geom_rect(aes(xmin = 83, xmax = 107, ymin = 1, ymax = nrow(df)), fill="gold")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_starch),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #pseudo plot for legend
+  library(ggnewscale)
+  df <- data.frame(Phylum=names(cols2), Plastic=c(rep("microplastic",length(cols2)-2),"macroplastic","starch"),
+                   Sensitivity=c(rep("higher in CTRL",length(cols2)-2),"unchanged","lower in CTRL"))
+  df$Sensitivity <- factor(df$Sensitivity, levels=c("higher in CTRL", "unchanged","lower in CTRL"))
+  legend_plot <- ggplot(df,aes(1,1))+
+                    geom_bar(stat="identity", aes(fill=Plastic))+
+                    geom_point(pch=15, size=6, aes(col=Phylum))+
+                    scale_color_manual(values=cols2)+
+                    scale_fill_manual(values=level_cols_Plastic[c(1,2,4)], name = "Plastic")+
+                    theme_bw()+
+                    new_scale_color() +
+                    geom_point(pch=15, size=6, aes(col=Sensitivity))+
+                    scale_color_manual(values=c("tomato", "grey80", "darkcyan"))
+                    #guides(size = guide_legend(order = 1), color = guide_legend(order = 2))
+  
+  #add plot and legend
+  phyla_plot <- plot_grid(p4 + theme(legend.position="none"), 
+                          get_legend(legend_plot), nrow=1,rel_widths=c(1, .3))
+  phyla_plot
+  
+}
+
+```
+
+\pagebreak
+
+
+## Relative abundance in soil
+
+We check for each ASV if it is sensitive or not to the different plastics. We show how many sensitive ASVs we have found for each plastic-treatment. Then, we plot the top 50 most abundant ASVs and label significant differences in red. Down below we show the phyla and class of those top abundant sensitive ASVs. 
+
+```{r soil: compute DAA, echo=F, message=F, warning=F}
+
+#microplastic
+
+#subset to microplastic
+DESIGN_soil_microplastic <-  DESIGN_soil[(DESIGN_soil$Plastic %in% c("CTRL", "microplastic") & DESIGN_soil$Plant==T),]
+DAT_soil_microplastic <- DAT_soil[colnames(DAT_soil) %in% DESIGN_soil_microplastic$AccessArray_barcode] #for DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_soil_microplastic, DAT_soil_microplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_soil_microplastic <- temp[[1]]; rm(temp)
+sens_ASVs_soil_microplastic <- summ_soil_microplastic$ASV[summ_soil_microplastic$score>2]
+
+
+#macroplastic
+
+#subset to macroplastic
+DESIGN_soil_macroplastic <-  DESIGN_soil[(DESIGN_soil$Plastic %in% c("CTRL", "macroplastic") & DESIGN_soil$Plant==T),]
+DAT_soil_macroplastic <- DAT_soil[colnames(DAT_soil) %in% DESIGN_soil_macroplastic$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_soil_macroplastic, DAT_soil_macroplastic, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_soil_macroplastic <- temp[[1]]; rm(temp)
+sens_ASVs_soil_macroplastic <- summ_soil_macroplastic$ASV[summ_soil_macroplastic$score>2]
+
+
+#starch
+
+#subset to starch
+DESIGN_soil_starch <-  DESIGN_soil[(DESIGN_soil$Plastic %in% c("CTRL", "starch") & DESIGN_soil$Plant==T),]
+DAT_soil_starch <- DAT_soil[colnames(DAT_soil) %in% DESIGN_soil_starch$AccessArray_barcode] #forr DAA analysis
+
+#preprocess
+temp <- preprocess(DESIGN_soil_starch, DAT_soil_starch, "AccessArray_barcode")
+feature_table <- temp[[1]]; meta_data <- temp[[2]]; rm(temp)
+
+#search differntial abundance
+temp <- run_all_DAA(feature_table, meta_data, group = "Plastic", 
+                    DAT_sample_names =  "AccessArray_barcode", reference = "Plastic,CTRL")
+
+summ_soil_starch <- temp[[1]]; rm(temp)
+sens_ASVs_soil_starch <- summ_soil_starch$ASV[summ_soil_starch$score>2]
+
+```
+
+
+```{r soil: summarise DAA, echo=F, message=F, warning=F}
+
+#relative abundance
+DAT_soil_rare <- as.data.frame(DAT_soil_rare)
+DAT_soil_rare <- (DAT_soil_rare/colSums(DAT_soil_rare)) * 100
+DAT_soil_rare <- as.data.frame(DAT_soil_rare[ rowSums(DAT_soil_rare) > 0,])
+
+#means & standard error
+means <- aggregate(t(DAT_soil_rare), list(DESIGN_soil$Plastic), mean) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+se <- aggregate(t(DAT_soil_rare), list(DESIGN_soil$Plastic), se) %>%
+  column_to_rownames("Group.1") %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("ASV")
+
+#sort by abundance of CTRL samples
+order <- order(-means$CTRL)
+means <- means[order,]
+se <- se[order,]
+
+summary <- pivot_longer(means, !(ASV), names_to="Plastic", values_to="means")
+summary$se <- pivot_longer(se, !(ASV), names_to="Plastic", values_to="se") %>% pull(se)
+summary$Plastic <- factor(summary$Plastic, levels=c("CTRL", "microplastic", "macroplastic", "starch"))
+summary$ASV <- factor(summary$ASV, levels=unique(summary$ASV)) #keep the sorted order of ASVs
+
+#add score
+#score
+summ_soil_microplastic$plastic <- "microplastic"
+summ_soil_macroplastic$plastic <- "macroplastic"
+summ_soil_starch$plastic <- "starch"
+summ <- rbind(summ_soil_microplastic, summ_soil_macroplastic, summ_soil_starch)
+
+#get score
+summary$score <- 0
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    score <- summ %>% filter(plastic == p) %>% filter(ASV == a) %>% pull(score)
+    if(length(score)==1){summary$score[(summary$Plastic==p & summary$ASV==a)] <- score}
+  }}
+
+#add if different abundant (score > 2)
+summary$sensitive <- ifelse(summary$score > 2, "sensitive", "not_sensitive")
+summary$sensitive <- as.factor(summary$sensitive)
+
+#add abundace in trt compared to ctrl
+summary$abu_trt <- "unchanged"
+for(p in unique(summary$Plastic)){
+  for(a in unique(summary$ASV)){
+    mean_ctrl <- summary$means[(summary$ASV==a) & (summary$Plastic=="CTRL")]
+    mean_trt <- summary$means[(summary$ASV==a) & (summary$Plastic==p)]
+    abu_sens <- summary$sensitive[(summary$ASV==a) & (summary$Plastic==p)]
+    if(abu_sens == "sensitive"){
+      trt_dir <- ifelse(mean_ctrl > mean_trt, "higher in CTRL", "lower in CTRL")
+      summary$abu_trt[(summary$ASV==a) & (summary$Plastic==p)] <- trt_dir
+      }
+  }
+}
+
+#add phyla and class
+summary$phylum <- NA
+summary$class <- NA
+summary$order <- NA
+summary$family <- NA
+summary$genus <- NA
+for(a in unique(summary$ASV)){
+  if(a %in% TAX$ASV_ID){
+    summary$phylum[summary$ASV == a] <- as.character(TAX$phylum[TAX$ASV_ID == a])
+    summary$class[summary$ASV == a] <- as.character(TAX$class[TAX$ASV_ID == a])
+    summary$order[summary$ASV == a] <- as.character(TAX$order[TAX$ASV_ID == a])
+    summary$family[summary$ASV == a] <- as.character(TAX$family[TAX$ASV_ID == a])
+    summary$genus[summary$ASV == a] <- as.character(TAX$genus[TAX$ASV_ID == a])
+  }
+  else{
+    summary$phylum[summary$ASV == a] <- "unassigned"
+    summary$class[summary$ASV == a] <- "unassigned"
+    summary$order[summary$ASV == a] <- "unassigned"
+    summary$family[summary$ASV == a] <- "unassigned"
+    summary$genus[summary$ASV == a] <- "unassigned"
+  }
+}
+
+summary_soil <- summary
+
+```
+
+### Different abundant ASVs
+
+We show how many ASVs has been changed due to the plastic treatments how much of the relative abundance belongs to those sensitive ASVs.
+
+```{r soil: show DAA microplastic, echo=F, message=F, warning=F}
+
+#pander how many ASVs are sensitive
+
+#microplastic
+summary_soil_microplastic <- summary[(summary$Plastic %in% c("CTRL", "microplastic")) & (summary$ASV %in% summ_soil_microplastic$ASV),]
+changed_abu_soil_microplastic <- sum(summary_soil_microplastic$means[summary_soil_microplastic$Plastic=="microplastic" &
+                                      summary_soil_microplastic$sensitive=="sensitive"])
+changed_abu_soil_microplastic <- paste0(round(changed_abu_soil_microplastic,2), "%")
+sens_soil_microplastic <- table(summary_soil_microplastic$abu_trt[summary_soil_microplastic$Plastic == "microplastic"])
+pander(sens_soil_microplastic[c(2,3,1)], caption = "microplastic effect in soil")
+
+```
+
+`r changed_abu_soil_microplastic` of the bacterial community in soil was changed in abundance due to microplastic.
+
+```{r soil: show DAA macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+summary_soil_macroplastic <- summary[(summary$Plastic %in% c("CTRL", "macroplastic")) & (summary$ASV %in% summ_soil_macroplastic$ASV),]
+changed_abu_soil_macroplastic <- sum(summary_soil_macroplastic$means[summary_soil_macroplastic$Plastic=="macroplastic" &
+                                      summary_soil_macroplastic$sensitive=="sensitive"])
+changed_abu_soil_macroplastic <- paste0(round(changed_abu_soil_macroplastic,2), "%")
+sens_soil_macroplastic <- table(summary_soil_macroplastic$abu_trt[summary_soil_macroplastic$Plastic == "macroplastic"])
+pander(sens_soil_macroplastic[c(2,3,1)], caption = "macroplastic effect in soil")
+
+```
+
+`r changed_abu_soil_macroplastic` of the bacterial community in soil was changed in abundance due to macroplastic.
+
+```{r soil: show DAA starch, echo=F, message=F, warning=F}
+
+#starch
+summary_soil_starch <- summary[(summary$Plastic %in% c("CTRL", "starch")) & (summary$ASV %in% summ_soil_starch$ASV),]
+changed_abu_soil_starch <- sum(summary_soil_starch$means[summary_soil_starch$Plastic=="starch" &
+                                      summary_soil_starch$sensitive=="sensitive"])
+changed_abu_soil_starch <- paste0(round(changed_abu_soil_starch,2), "%")
+sens_soil_starch <- table(summary_soil_starch$abu_trt[summary_soil_starch$Plastic == "starch"])
+pander(sens_soil_starch[c(2,3,1)], caption = "starch effect in soil")
+
+```
+
+`r changed_abu_soil_starch` of the bacterial community in soil was changed in abundance due to starch.
+
+\pagebreak
+
+### Relative abundance plot
+
+We plot the 50 top abundant ASVs (in controls) and label plastic sensitive ASVs in red.
+
+\vspace{5mm}
+
+```{r soil: relative abundance plot, echo=F, message=F, warning=F}
+
+#plot the 50 most abundant ASVs
+
+#set threshold for top abundant
+top_abu <- 50
+
+#plot
+ggplot(summary[1:(top_abu*4),], aes(ASV, means, fill=Plastic, col=sensitive))+
+  geom_bar(stat="identity", position="dodge", width = 0.8, size=0.2)+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, size=6))+
+  scale_color_manual(values=c(NA, "red"))+
+  scale_fill_manual(values=level_cols_Plastic)+
+  geom_errorbar(aes(ymin=means, ymax=means+se/2), width=.3, position=position_dodge(.8))
+  #geom_text(aes(label = score, y=-0.2), position = position_dodge(.8), size=1)
+
+```
+
+\pagebreak
+
+### Taxonomy of abundant ASVs
+
+We show the taxonomy of top abundant ASVs which are plastic sensitive.
+
+```{r soil: relative abundance taxa microplastic, echo=F, message=F, warning=F}
+
+#microplastic
+
+#sensitive ASVs from top 50
+top_sensitive_microplastic <- pivot_wider(summary_soil_microplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_microplastic <- top_sensitive_microplastic[1:top_abu,] #top abundant
+top_sensitive_microplastic <- top_sensitive_microplastic[top_sensitive_microplastic$sensitive_microplastic =="sensitive",] #sensitive
+top_sensitive_microplastic <- top_sensitive_microplastic[,colnames(top_sensitive_microplastic) %in%
+                                                         c("ASV","means_CTRL","means_microplastic", "phylum", "class")] #column to pander
+top_sensitive_microplastic$means_CTRL <- paste0(round(top_sensitive_microplastic$means_CTRL,2),"%")
+top_sensitive_microplastic$means_microplastic <- paste0(round(top_sensitive_microplastic$means_microplastic,2),"%")
+colnames(top_sensitive_microplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_microplastic, caption="Top abundant ASVs sensitive to microplastic in soil")
+
+```
+
+\pagebreak
+
+```{r soil: relative abundance taxa macroplastic, echo=F, message=F, warning=F}
+
+#macroplastic
+
+#sensitive ASVs from top 50
+top_sensitive_macroplastic <- pivot_wider(summary_soil_macroplastic,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_macroplastic <- top_sensitive_macroplastic[1:top_abu,] #top abundant
+top_sensitive_macroplastic <- top_sensitive_macroplastic[top_sensitive_macroplastic$sensitive_macroplastic =="sensitive",] #sensitive
+top_sensitive_macroplastic <- top_sensitive_macroplastic[,colnames(top_sensitive_macroplastic) %in%
+                                                         c("ASV","means_CTRL","means_macroplastic", "phylum", "class")] #column to pander
+top_sensitive_macroplastic$means_CTRL <- paste0(round(top_sensitive_macroplastic$means_CTRL,2),"%")
+top_sensitive_macroplastic$means_macroplastic <- paste0(round(top_sensitive_macroplastic$means_macroplastic,2),"%")
+colnames(top_sensitive_macroplastic)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_macroplastic, caption="Top abundant ASVs sensitive to macroplastic in soil")
+
+```
+
+\pagebreak
+
+```{r soil: relative abundance taxa starch, echo=F, message=F, warning=F}
+
+#starch
+
+#sensitive ASVs from top 50
+top_sensitive_starch <- pivot_wider(summary_soil_starch,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+top_sensitive_starch <- top_sensitive_starch[1:top_abu,] #top abundant
+top_sensitive_starch <- top_sensitive_starch[top_sensitive_starch$sensitive_starch =="sensitive",] #sensitive
+top_sensitive_starch <- top_sensitive_starch[,colnames(top_sensitive_starch) %in%
+                                                         c("ASV","means_CTRL","means_starch", "phylum", "class")] #column to pander
+top_sensitive_starch$means_CTRL <- paste0(round(top_sensitive_starch$means_CTRL,2),"%")
+top_sensitive_starch$means_starch <- paste0(round(top_sensitive_starch$means_starch,2),"%")
+colnames(top_sensitive_starch)[4:5] <- c("abu CTRL", "abu trt")
+pander(top_sensitive_starch, caption="Top abundant ASVs sensitive to starch in soil")
+
+```
+
+\pagebreak
+
+### Sensitive Taxonomies
+
+We plot how many ASVs are sensitive to multiple plastic treatments and show frequent phyla, classes and families which are sensitive to all three plastic treatments.
+
+\vspace{5mm}
+
+```{r soil: Venn plot, echo=F, message=F, warning=F}
+
+ggvenn(list(microplastic=summary_soil_microplastic$ASV[summary_soil_microplastic$sensitive=="sensitive"],
+            macroplastic=summary_soil_macroplastic$ASV[summary_soil_macroplastic$sensitive=="sensitive"],
+            starch=summary_soil_starch$ASV[summary_soil_starch$sensitive=="sensitive"]),
+  fill_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  stroke_size = 0.5, set_name_size = 5, 
+  #set_name_color = c("darkolivegreen2", 'darkseagreen4', 'gold'),
+  show_percentage = F
+  )+
+  ggtitle("soil: Sensitive bacterial ASVs in soil")
+
+```
+
+\pagebreak
+
+```{r soil: common sensitive taxa, echo=F, message=F, warning=F}
+
+#sensitive taxonomy in microplastic, macroplastic and starch
+
+#phylum
+sensitive_common_phylum <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("phylum")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_phylum)[2] <- "phylum"
+sensitive_common_phylum <- as.data.frame(sort(table(sensitive_common_phylum$phylum),decreasing = T)) # %>% filter(Freq >= 5) #don't filter
+colnames(sensitive_common_phylum) <- c("phylum", "frequency")
+pander(sensitive_common_phylum, caption="Phyla sensitive to all plastic treatments  in soil")
+
+#class
+sensitive_common_class <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV, family), names_from = "Plastic", values_from = c("class")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_class)[2] <- "class"
+sensitive_common_class <- as.data.frame(sort(table(sensitive_common_class$class),decreasing = T)) # %>% filter(Freq >= 5)
+colnames(sensitive_common_class) <- c("class", "frequency")
+pander(sensitive_common_class, caption="Classes sensitive to all plastic treatments in soil")
+
+#family
+sensitive_common_family <- pivot_wider(summary[summary$sensitive=="sensitive",],id_cols = c(ASV), names_from = "Plastic", values_from = c("family")) %>%
+                             na.omit() %>% dplyr::select("ASV", "microplastic") %>% as.data.frame()
+colnames(sensitive_common_family)[2] <- "family"
+sensitive_common_family <- as.data.frame(sort(table(sensitive_common_family$family),decreasing = T)) # %>% filter(Freq >= 5)
+colnames(sensitive_common_family) <- c("family", "frequency")
+pander(sensitive_common_family, caption="Families sensitive to all plastic treatments in soil")
+
+```
+
+\pagebreak
+
+### Phylogenetic tree
+
+We plot a phylogenetic tree with all ASVs tested for sensitivity and label with the rings around the tree if they are sensitive to microplastic, macroplastic and starch.
+
+\vspace{5mm}
+
+```{r soil: subset sequences for tree, echo=F, message=F, warning=F}
+
+#import seqs
+seqs <- Biostrings::readDNAStringSet("../01_dadapipe/4_output/bacteria_ASV/ASV100/bacteria_SEQ100.fasta")
+seqs <- as.data.frame(seqs); colnames(seqs) <- "seqs"
+
+#subset for tree
+tested_ASVs_soil <- unique(summ$ASV)
+seqs_soil <- seqs[rownames(seqs) %in% tested_ASVs_soil,,drop=F]
+seqs_soil <- data.frame(name=rownames(seqs_soil), seq=seqs_soil$seqs)
+rownames(seqs_soil) <- seqs_soil$name
+
+#export as fasta file
+#dir.create("../03_build_tree/soil",recursive = T)
+#ampir::df_to_faa(seqs_soil, "../03_build_tree/soil/sequences_soil.fasta")
+
+########
+#in bash
+#cd ../03_build_tree/soil/sequences_soil
+#mafft-linsi sequences_soil.fasta > sequences_soil_aligned.fasta #align sequences
+#iqtree -s sequences_soil_aligned.fasta #build tree
+########
+```
+
+```{r soil: show taxa tree, echo=F, message=F, warning=F}
+
+#set to true at the beginning of script if files were computed
+if(treefiles){
+
+  #read tree
+  tree_file <- "/Users/j.waechli/Desktop/Jan_Waelchli/01_Projects/01_Support/Robin/Microbiome_BE13/03_build_tree/soil/sequences_soil_aligned.fasta.treefile"
+  tree <- read.tree(tree_file)
+  
+  #subset summary and sort them
+  summary_taxa <- unique(summary[,c("ASV", "phylum","class","family")])
+  summary_taxa <- summary_taxa[summary_taxa$ASV %in% tested_ASVs_soil,]
+  rownames(summary_taxa) <- summary_taxa$ASV
+  summary_taxa <- summary_taxa[tree[["tip.label"]],]
+  
+  
+  #colorstring
+  summary_taxa$labels <- NA
+  summary_taxa$cols <- NA
+  
+  for(a in summary_taxa$ASV){
+    summary_taxa$labels[summary_taxa$ASV == a] <- as.character(TAX$labels[TAX$ASV_ID == a][1])
+    summary_taxa$cols[summary_taxa$ASV == a] <- as.character(TAX$cols_phyla[TAX$ASV_ID == a][1])
+  }
+  
+  high_abundant_phyla <- as.character(unique(PHYSEQ_phyla_melt$labels_2))
+  summary_taxa$labels_2 <- summary_taxa$labels
+  summary_taxa$labels_2[!(summary_taxa$labels %in% high_abundant_phyla)] <- "Low abundant phyla"
+  summary_taxa$cols2 <- summary_taxa$cols
+  summary_taxa$cols2[summary_taxa$labels_2 == "Low abundant phyla"] <- "lightgrey"
+  
+  #extend taxa string to the length of tree edges (needs for each edge a value but uses only the number of tips)
+  phylum <- c(summary_taxa$labels_2,rep(NA,(length(tree[["edge.length"]])-length(summary_taxa$labels_2))+1))
+  cols2 <- summary_taxa$cols2
+  names(cols2) <- summary_taxa$labels_2
+  cols2_long <- c(cols2,rep("white",(length(tree[["edge.length"]])-length(cols2))+1))
+  
+  #plot genetic tree with phyla
+  p1 <- ggtree(tree, layout = "fan", branch.length = "none")+
+    geom_tippoint(aes(color=phylum), size=2)+
+    scale_color_manual(values=cols2_long)+
+    new_scale_color()
+  
+  
+  #for saving
+  phylotree_soil <- list(plot=p1, phylum=phylum, colstring=cols2_long)
+  
+  
+  #plot microplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "microplastic") & summary$ASV %in% rownames(seqs_soil),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_microplastic) / (df$means_CTRL + df$means_microplastic)) *100
+  df$abu_trt_microplastic <- factor(df$abu_trt_microplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p2 <- p1 + geom_rect(aes(xmin = 52, xmax = 77, ymin = 1, ymax = nrow(df)), fill="darkolivegreen2")+ #background color
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_microplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list()) +
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #plot macroplastic ring
+  df <- summary[summary$Plastic %in% c("CTRL", "macroplastic") & summary$ASV %in% rownames(seqs_soil),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_macroplastic) / (df$means_CTRL + df$means_macroplastic)) *100
+  df$abu_trt_macroplastic <- factor(df$abu_trt_macroplastic, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p3 <- p2 + geom_rect(aes(xmin = 77, xmax = 102, ymin = 1, ymax = nrow(df)), fill="darkseagreen4")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_macroplastic),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  
+  #plot starch ring
+  df <- summary[summary$Plastic %in% c("CTRL", "starch") & summary$ASV %in% rownames(seqs_soil),]
+  df <- pivot_wider(df,id_cols = !(c(se, score)), names_from = "Plastic", values_from = c("means", "abu_trt", "sensitive"))
+  df$difference <- ((df$means_CTRL - df$means_starch) / (df$means_CTRL + df$means_starch)) *100
+  df$abu_trt_starch <- factor(df$abu_trt_starch, levels=c("higher in CTRL", "unchanged", "lower in CTRL"))
+  
+  p4 <- p3 + geom_rect(aes(xmin = 102, xmax = 130, ymin = 1, ymax = nrow(df)), fill="gold")+
+              new_scale_fill()+
+             geom_fruit(data=df, geom=geom_bar,
+              mapping=aes(x=difference, y=ASV, fill=abu_trt_starch),
+              pwidth=0.2,
+              orientation="y",
+              stat="identity",
+              offset=0.3,
+              axis.params=list(axis="x", text.size=2, text.angle=-90, nbreak=2),
+              grid.params=list())+
+              scale_fill_manual(values=c("tomato", "grey80", "darkcyan"))
+  
+  #pseudo plot for legend
+  library(ggnewscale)
+  df <- data.frame(Phylum=names(cols2), Plastic=c(rep("microplastic",length(cols2)-2),"macroplastic","starch"),
+                   Sensitivity=c(rep("higher in CTRL",length(cols2)-2),"unchanged","lower in CTRL"))
+  df$Sensitivity <- factor(df$Sensitivity, levels=c("higher in CTRL", "unchanged","lower in CTRL"))
+  legend_plot <- ggplot(df,aes(1,1))+
+                    geom_bar(stat="identity", aes(fill=Plastic))+
+                    geom_point(pch=15, size=6, aes(col=Phylum))+
+                    scale_color_manual(values=cols2)+
+                    scale_fill_manual(values=level_cols_Plastic[c(1,2,4)], name = "Plastic")+
+                    theme_bw()+
+                    new_scale_color() +
+                    geom_point(pch=15, size=6, aes(col=Sensitivity))+
+                    scale_color_manual(values=c("tomato", "grey80", "darkcyan"))
+                    #guides(size = guide_legend(order = 1), color = guide_legend(order = 2))
+  
+  #add plot and legend
+  phyla_plot <- plot_grid(p4 + theme(legend.position="none"), 
+                          get_legend(legend_plot), nrow=1,rel_widths=c(1, .3))
+  phyla_plot
+  
+}
+
+```
+
+\vspace{5mm}
+
+**Conclusion differential abundance analysis:** *A huge part of the microbiome is shaped by adding plastic to the soil. Microplastic, macroplastic and starch has a similar effect. Bacteria reacting to the plastic are phylogenetic diverse.*
+
+
+```{r sensitive ASV table, echo=F, message=F, warning=F}
+
+#create supplementary table
+
+#select sensitive ASV and wide transform table
+wide_transform <- function(input_data, substrate){
+  output <- input_data %>%
+  dplyr::mutate(Plastic = paste0(Plastic, "_", substrate)) %>%
+  dplyr::mutate(means = round(means,2)) %>% #round
+  dplyr::mutate(means = paste0(sprintf("%.2f", means), "%")) %>% #show the same number of digits
+  dplyr::mutate(means = ifelse(sensitive == "sensitive", paste0(means," *"), means)) %>%
+  dplyr::select(ASV, phylum:genus, means, Plastic) %>%
+  pivot_wider(names_from = "Plastic", values_from = "means") %>%
+  return(output)
+}
+
+summary_sand_wide <- wide_transform(summary_sand, "sand")
+summary_root_sand_wide <- wide_transform(summary_root_sand, "root_sand")
+summary_root_soil_wide <- wide_transform(summary_root_soil, "root_soil")
+summary_soil_wide <- wide_transform(summary_soil, "soil")
+
+#combine the four substrate tables
+summary_wide <- dplyr::full_join(summary_sand_wide, summary_root_sand_wide) %>%
+  dplyr::full_join(summary_root_soil_wide) %>%
+  dplyr::full_join(summary_soil_wide)
+
+# Replace na values with 0%
+summary_wide[is.na(summary_wide)] <-  "0.00%"
+
+#filter for sensitive ASV (sensitive to at least one plastic treatment in one substrate)
+summary_wide_sensitive <- summary_wide %>%
+  dplyr::filter(if_any(CTRL_sand:starch_soil, ~ str_detect(.x, "\\*")))
+
+#xlsx::write.xlsx2(summary_wide_sensitive, "sensitive_ASVs_raw.xlsx")
+
+```
+
+
+\pagebreak
+
+```{r export RDA files, , echo=F, message=F, warning=F}
+
+# create directory
+dir.create("interim")
+dir.create("interim/05_DAA")
+
+## set output directory
+setwd("interim/05_DAA")
+
+#save objects needed in the following scripts as RDA
+# saveRDS(phylotree_sand, "phylotree_sand.RDS")
+# saveRDS(phylotree_root_sand, "phylotree_root_sand.RDS")
+# saveRDS(phylotree_root_soil, "phylotree_root_soil.RDS")
+# saveRDS(phylotree_soil, "phylotree_soil.RDS")
+
+#remove folder created by DAA
+unlink("DAA example/", recursive = T)
+unlink("05_DAA_files/", recursive = T)
+
+```
+
